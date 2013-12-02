@@ -17,38 +17,16 @@
  */
 package org.apache.cassandra.engine;
 
-import java.nio.ByteBuffer;
-import java.util.Arrays;
-import java.util.BitSet;
-
-
-// TODO: We should specialize for dense rows, where we have only one cell per row.
-public class ReusableRow extends AbstractRow
+/**
+ * Atom are the main constituant of a Partition.
+ * An atom is one of:
+ *   - A row
+ *   - A range tombstone
+ *   - A collection tombstone
+ */
+public interface Atom extends Clusterable
 {
-    private final RowData data;
-    private Writer writer;
+    public enum Kind { ROW, RANGE_TOMBSTONE, COLLECTION_TOMBSTONE };
 
-    public ReusableRow(Layout layout, int initialCapacity)
-    {
-        this.data = new RowData(layout, 1, initialCapacity);
-    }
-
-    protected RowData data()
-    {
-        return data;
-    }
-
-    protected int row()
-    {
-        return 0;
-    }
-
-    public Writer writer()
-    {
-        if (writer == null)
-            writer = new Writer(data);
-        else
-            writer.reset(); // We want to alway reuse the same row
-        return writer;
-    }
+    public Kind kind();
 }

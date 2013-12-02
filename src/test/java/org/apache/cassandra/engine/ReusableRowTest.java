@@ -27,119 +27,93 @@ import static org.apache.cassandra.engine.TestUtils.*;
 
 public class ReusableRowTest
 {
-    private static final Layout layout = new Layout()
-    {
-        private Column[] columns = new Column[] {
-            // regular
-            col("a"), col("b"), col("c"), col("d"),
-            // collections
-            ccol("m"), ccol("n"), ccol("o"),
-            // regular
-            col("x"), col("y"), col("z"),
-        };
-
-        public int clusteringSize() { return 0; }
-        public Column[] regularColumns() { return columns; }
-        public Comparator<ByteBuffer> collectionKeyComparator(Column c)
-        {
-            return new Comparator<ByteBuffer>()
-            {
-                public int compare(ByteBuffer b1, ByteBuffer b2)
-                {
-                    return i(b1) - i(b2);
-                }
-            };
-        }
-    };
-
     @Test
     public void testReusability()
     {
-        ReusableRow row = new ReusableRow(layout, 4, true);
+        Layout layout = simpleLayout();
+        ReusableRow row = new ReusableRow(layout, 4);
         writeTo(row).add("a", 2, 0L)
-                    .add("c", 4, 0L)
-                    .add("m", 0, 0, 0L)
-                    .add("m", 1, 1, 0L)
+                    .add("b", 4, 0L)
+                    .add("c1", 0, 0, 0L)
+                    .add("c1", 1, 1, 0L)
                     .done();
 
         assertTrue(row.has(col("a")));
-        assertTrue(row.has(col("c")));
-        assertTrue(row.has(ccol("m")));
+        assertTrue(row.has(col("b")));
+        assertTrue(row.has(ccol("c1")));
 
-        assertFalse(row.has(col("b")));
-        assertFalse(row.has(col("x")));
+        assertFalse(row.has(col("z")));
+        assertFalse(row.has(col("c2")));
 
-        assertEquals(4, i(row.value(col("c"))));
-        assertEquals(1, i(row.value(ccol("m"), 1)));
+        assertEquals(4, ival(row, "b"));
+        assertEquals(1, ival(row, "c1", 1));
 
-        assertEquals(2, row.size(ccol("m")));
-        assertEquals(0, row.size(ccol("n")));
+        assertEquals(2, row.size(ccol("c1")));
+        assertEquals(0, row.size(ccol("c2")));
 
         // Reuse
-        writeTo(row).add("b", 3, 0L)
-                    .add("c", 6, 0L)
-                    .add("m", 0, 5, 0L)
-                    .add("x", 1, 0L)
-                    .add("y", 3, 0L)
+        writeTo(row).add("b", 1, 0L)
+                    .add("c1", 0, 5, 0L)
+                    .add("c2", 0, 1, 0L)
+                    .add("z", 3, 0L)
                     .done();
 
         assertTrue(row.has(col("b")));
-        assertTrue(row.has(col("c")));
-        assertTrue(row.has(ccol("m")));
-        assertTrue(row.has(col("x")));
-        assertTrue(row.has(col("y")));
+        assertTrue(row.has(ccol("c1")));
+        assertTrue(row.has(ccol("c2")));
+        assertTrue(row.has(col("z")));
 
         assertFalse(row.has(col("a")));
-        assertFalse(row.has(col("d")));
-        assertFalse(row.has(ccol("n")));
 
-        assertEquals(6, i(row.value(col("c"))));
-        assertEquals(5, i(row.value(ccol("m"), 0)));
-        assertEquals(3, i(row.value(col("y"), 0)));
+        assertEquals(1, ival(row, "b"));
+        assertEquals(5, ival(row, "c1", 0));
+        assertEquals(1, ival(row, "c2", 0));
+        assertEquals(3, ival(row, "z"));
 
-        assertEquals(1, row.size(ccol("m")));
-        assertEquals(0, row.size(ccol("n")));
+        assertEquals(1, row.size(ccol("c1")));
+        assertEquals(1, row.size(ccol("c2")));
     }
 
     @Test
     public void testMerging()
     {
-        ReusableRow left = new ReusableRow(layout, 3, true);
+        Layout layout = simpleLayout();
+        ReusableRow left = new ReusableRow(layout, 3);
         writeTo(left).add("a", 2, 0L)
                      .add("b", 4, 0L)
-                     .add("m", 0, 0, 1L)
-                     .add("m", 1, 0, 1L)
+                     .add("c1", 0, 0, 1L)
+                     .add("c1", 1, 0, 1L)
                      .done();
 
-        ReusableRow right = new ReusableRow(layout, 3, true);
+        ReusableRow right = new ReusableRow(layout, 3);
         writeTo(right).add("a", 3, 1L)
-                      .add("m", 0, 1, 0L)
-                      .add("m", 1, 1, 1L)
-                      .add("m", 2, 1, 2L)
+                      .add("c1", 0, 1, 0L)
+                      .add("c1", 1, 1, 1L)
+                      .add("c1", 2, 1, 2L)
                       .done();
 
-        ReusableRow result = new ReusableRow(layout, 2, true);
-        AbstractRow.merge(layout, left, right, result.writer(), 0);
+        ReusableRow result = new ReusableRow(layout, 2);
+        Rows.merge(layout, left, right, result.writer(), 0);
 
         assertTrue(result.has(col("a")));
         assertTrue(result.has(col("b")));
-        assertTrue(result.has(ccol("m")));
+        assertTrue(result.has(ccol("c1")));
 
-        assertFalse(result.has(col("c")));
-        assertFalse(result.has(ccol("n")));
+        assertFalse(result.has(col("z")));
+        assertFalse(result.has(ccol("c2")));
 
-        assertEquals(3, result.size(ccol("m")));
+        assertEquals(3, result.size(ccol("c1")));
 
-        assertEquals(3, i(result.value(col("a"))));
-        assertEquals(4, i(result.value(col("b"))));
-        assertEquals(0, i(result.value(ccol("m"), 0)));
-        assertEquals(0, i(result.value(ccol("m"), 1)));
-        assertEquals(1, i(result.value(ccol("m"), 2)));
+        assertEquals(3, ival(result, "a"));
+        assertEquals(4, ival(result, "b"));
+        assertEquals(0, ival(result, "c1", 0));
+        assertEquals(0, ival(result, "c1", 1));
+        assertEquals(1, ival(result, "c1", 2));
 
-        assertEquals(1L, result.timestamp(col("a")));
-        assertEquals(0L, result.timestamp(col("b")));
-        assertEquals(1L, result.timestamp(ccol("m"), 0));
-        assertEquals(1L, result.timestamp(ccol("m"), 1));
-        assertEquals(2L, result.timestamp(ccol("m"), 2));
+        assertEquals(1L, tstamp(result, "a"));
+        assertEquals(0L, tstamp(result, "b"));
+        assertEquals(1L, tstamp(result, "c1", 0));
+        assertEquals(1L, tstamp(result, "c1", 1));
+        assertEquals(2L, tstamp(result, "c1", 2));
     }
 }

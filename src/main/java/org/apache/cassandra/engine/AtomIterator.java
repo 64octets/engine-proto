@@ -17,17 +17,24 @@
  */
 package org.apache.cassandra.engine;
 
-import java.nio.ByteBuffer;
-import java.util.Comparator;
+import java.io.Closeable;
+import java.util.Iterator;
 
 /**
- * Metadata on a table layout (aka CFMetaData).
+ * An iterator over the Atoms of a given partition.
+ *
+ * An implementation of AtomIterator *must* provide the following guarantees:
+ *   1) the returned Atom should be in clustering order (or reverse clustering order).
+ *   2) the tombstone (range and collections) returned by the iterator should *not* shadow
+ *   any cell of the Row returned by the iterator. Concretely, this means the range
+ *   tombstones returned by a given iterator may shadow cells from another iterator (and
+ *   in particular AtomIterator merging take this into account), but not the
+ *   cells returned by the iterator itself.
  */
-public interface Layout
+public interface AtomIterator extends Iterator<Atom>, Closeable
 {
-    public int clusteringSize();
-    public ClusteringComparator comparator();
-    public Column[] regularColumns();
-    public Comparator<ByteBuffer> collectionKeyComparator(Column c);
-    public boolean hasCollections();
+    public Layout metadata();
+    public DecoratedKey getPartitionKey();
+
+    public DeletionTime partitionLevelDeletion();
 }

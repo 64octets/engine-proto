@@ -18,6 +18,7 @@
 package org.apache.cassandra.engine;
 
 import java.nio.ByteBuffer;
+import java.util.Comparator;
 
 /**
  * Static helper methods for tests.
@@ -25,6 +26,52 @@ import java.nio.ByteBuffer;
 public abstract class TestUtils
 {
     private TestUtils() {}
+
+    private static final Layout simpleLayout = new Layout()
+    {
+        private Column[] columns = new Column[] { col("a"), col("b"), ccol("c1"), ccol("c2"), col("z") };
+        private ClusteringComparator comparator = new AbstractClusteringComparator()
+        {
+            public int compare(Clusterable c1, Clusterable c2)
+            {
+                assert c1.clusteringSize() == 0;
+                assert c2.clusteringSize() == 0;
+                return 0;
+            }
+        };
+
+        public int clusteringSize() { return 0; }
+        public Column[] regularColumns() { return columns; }
+        public ClusteringComparator comparator() { return comparator; }
+        public boolean hasCollections() { return true; }
+
+        public Comparator<ByteBuffer> collectionKeyComparator(Column c)
+        {
+            return new Comparator<ByteBuffer>()
+            {
+                public int compare(ByteBuffer b1, ByteBuffer b2)
+                {
+                    return i(b1) - i(b2);
+                }
+            };
+        }
+    };
+
+    /**
+     * Returns a Layout correspond to:
+     *   CREATE TABLE test (
+     *       k int PRIMARY KEY,
+     *       a int,
+     *       b int,
+     *       c1 map<int, int>
+     *       c2 map<int, int>
+     *       z int,
+     *   )
+     */
+    public static Layout simpleLayout()
+    {
+        return simpleLayout;
+    }
 
     public static Column col(String name)
     {
@@ -41,12 +88,32 @@ public abstract class TestUtils
         return bb.getInt(0);
     }
 
+    public static int ival(Row row, String name)
+    {
+        return i(row.value(row.position(col(name))));
+    }
+
+    public static int ival(Row row, String name, int i)
+    {
+        return i(row.value(row.position(col(name)) + i));
+    }
+
+    public static long tstamp(Row row, String name)
+    {
+        return row.timestamp(row.position(col(name)));
+    }
+
+    public static long tstamp(Row row, String name, int i)
+    {
+        return row.timestamp(row.position(col(name)) + i);
+    }
+
     public static ByteBuffer bb(int value)
     {
         return ByteBuffer.allocate(4).putInt(0, value);
     }
 
-    public static RowWriter writeTo(AbstractRow row)
+    public static RowWriter writeTo(ReusableRow row)
     {
         return new RowWriter(row);
     }
@@ -58,7 +125,7 @@ public abstract class TestUtils
     {
         private final AbstractRow.Writer writer;
 
-        private RowWriter(AbstractRow row)
+        private RowWriter(ReusableRow row)
         {
             this.writer = row.writer();
         }
@@ -77,31 +144,31 @@ public abstract class TestUtils
 
         public RowWriter add(String name, int value, long timestamp, int ttl)
         {
-            writer.addCell(col(name), false, bb(value), timestamp, ttl, ttl == 0 ? AbstractRow.NO_LOCAL_DELETION_TIME : System.currentTimeMillis() + (ttl * 1000));
+            writer.addCell(col(name), false, null, bb(value), timestamp, ttl, ttl == 0 ? AbstractRow.NO_LOCAL_DELETION_TIME : System.currentTimeMillis() + (ttl * 1000));
             return this;
         }
 
         public RowWriter addTombstone(String name, long timestamp)
         {
-            writer.addCell(col(name), true, null, timestamp, 0, System.currentTimeMillis());
+            writer.addCell(col(name), true, null, null, timestamp, 0, System.currentTimeMillis());
             return this;
         }
 
         public RowWriter add(String name, int key, int value, long timestamp)
         {
-            writer.addCollectionCell(ccol(name), bb(key), false, bb(value), timestamp, 0, AbstractRow.NO_LOCAL_DELETION_TIME);
+            writer.addCell(ccol(name), false, bb(key), bb(value), timestamp, 0, AbstractRow.NO_LOCAL_DELETION_TIME);
             return this;
         }
 
         public RowWriter addTombstone(String name, int key, long timestamp)
         {
-            writer.addCollectionCell(ccol(name), bb(key), true, null, timestamp, 0, System.currentTimeMillis());
+            writer.addCell(ccol(name), true, bb(key), null, timestamp, 0, System.currentTimeMillis());
             return this;
         }
 
         public void done()
         {
-            writer.closeRow();
+            writer.rowDone();
         }
     }
 }

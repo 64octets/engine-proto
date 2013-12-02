@@ -17,38 +17,27 @@
  */
 package org.apache.cassandra.engine;
 
-import java.nio.ByteBuffer;
-import java.util.Arrays;
-import java.util.BitSet;
-
-
-// TODO: We should specialize for dense rows, where we have only one cell per row.
-public class ReusableRow extends AbstractRow
+public interface Partition //implements Iterable<Row>
 {
-    private final RowData data;
-    private Writer writer;
+    public Layout metadata();
+    public ClusteringComparator comparator();
 
-    public ReusableRow(Layout layout, int initialCapacity)
-    {
-        this.data = new RowData(layout, 1, initialCapacity);
-    }
+    public DecoratedKey getPartitionKey();
+    public DeletionInfo deletionInfo();
 
-    protected RowData data()
-    {
-        return data;
-    }
+    // No values (even deleted), live deletion infos
+    public boolean isEmpty();
 
-    protected int row()
-    {
-        return 0;
-    }
+    public int getLiveRowCount();
 
-    public Writer writer()
-    {
-        if (writer == null)
-            writer = new Writer(data);
-        else
-            writer.reset(); // We want to alway reuse the same row
-        return writer;
-    }
+    // Use sparingly, prefer iterator()/atomIterator when possible
+    public Row findRow(RowPath path);
+
+    // The Row objects returned are only valid until next() is called!
+    // This iterator and the Row object it returns skips deleted values.
+    // For the CQL code or other high level.
+    //public Iterator<Row> iterator(int now);
+
+    // Iterator over the Atom contained in this partition.
+    public AtomIterator atomIterator();
 }

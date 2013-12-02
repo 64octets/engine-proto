@@ -17,38 +17,7 @@
  */
 package org.apache.cassandra.engine;
 
-import java.nio.ByteBuffer;
-import java.util.Arrays;
-import java.util.BitSet;
-
-
-// TODO: We should specialize for dense rows, where we have only one cell per row.
-public class ReusableRow extends AbstractRow
+// TODO
+public class RowPath extends ClusteringPrefix
 {
-    private final RowData data;
-    private Writer writer;
-
-    public ReusableRow(Layout layout, int initialCapacity)
-    {
-        this.data = new RowData(layout, 1, initialCapacity);
-    }
-
-    protected RowData data()
-    {
-        return data;
-    }
-
-    protected int row()
-    {
-        return 0;
-    }
-
-    public Writer writer()
-    {
-        if (writer == null)
-            writer = new Writer(data);
-        else
-            writer.reset(); // We want to alway reuse the same row
-        return writer;
-    }
 }

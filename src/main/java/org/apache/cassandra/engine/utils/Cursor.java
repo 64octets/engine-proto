@@ -15,20 +15,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.cassandra.engine;
+package org.apache.cassandra.engine.utils;
 
-import java.nio.ByteBuffer;
+import org.apache.cassandra.engine.*;
 
-public interface RowMerger
+/**
+ * An cursor that allows navigation over a collection of Atoms.
+ */
+public interface Cursor extends Clusterable
 {
-    public enum Resolution { ONLY_IN_LEFT, ONLY_IN_RIGHT, MERGED_FROM_LEFT, MERGED_FROM_RIGHT }
+    // Sets the element to position i.
+    public void position(int i);
 
-    public void setClusteringColumn(int i, ByteBuffer value);
+    // Gets the current position of the Cursor.
+    public int position();
 
-    public void onRegularCell(Column c, boolean isDeletedCell, ByteBuffer value, long timestamp, int ttl, long deletionTime, Resolution resolution);
-    public void onCollectionCell(Column c, ByteBuffer collectionKey, boolean isDeletedCell, ByteBuffer value, long timestamp, int ttl, long deletionTime, Resolution resolution);
+    // The limit of the collection this is a cursor over, i.e. the first
+    // invalid position for this cursor.
+    public int limit();
 
-    public void closeRow();
-
-    // TODO: probably a onCounterCell
+    public ClusteringComparator comparator();
 }
