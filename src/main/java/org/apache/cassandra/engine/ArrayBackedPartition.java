@@ -41,9 +41,6 @@ public class ArrayBackedPartition implements Partition
 
     private final DeletionInfo deletion;
 
-    private int liveRows;
-    private int rows; // The total number of rows
-
     private final RowData data;
 
     private ArrayBackedPartition(Layout metadata, DecoratedKey partitionKey, int rowsCapacity, int cellsCapacity)
@@ -57,91 +54,6 @@ public class ArrayBackedPartition implements Partition
 
         this.data = new RowData(metadata, rowsCapacity, cellsCapacity);
     }
-
-    //public static Partition from(AtomIterable iterable)
-    //{
-    //    int size = AtomIterators.countRows(iterable);
-    //    if (size == 0)
-    //        return Partitions.empty();
-
-    //    return from(iterable.iterator(), size);
-    //}
-
-    //// size *must* be big enough to accomodate the iterator
-    //public static Partition from(AtomIterator iterator, int size)
-    //{
-    //    ArrayBackedPartition result = new ArrayBackedPartition(iterator.metadata(), iterator.getPartitionKey(), size);
-    //    result.addAll(iterator);
-    //    return result;
-    //}
-
-    //private void addAll(AtomIterator iterator)
-    //{
-    //    deletion.delete(iterator.partitionLevelDeletion());
-    //    while (iterator.hasNext())
-    //    {
-    //        Atom atom = iterator.next();
-    //        switch (atom.kind())
-    //        {
-    //            case CELL_GROUP:
-    //                CellIterator cellIter = (CellIterator)atom;
-    //                while (cellIter.hasNext())
-    //                    add(size++, cellIter.next());
-    //                break;
-    //            case RANGE_TOMBSTONE:
-    //                deletion.add((RangeTombstone)atom, comparator());
-    //                break;
-    //            case COLLECTION_TOMBSTONE:
-    //                // TODO
-    //                break;
-    //        }
-    //    }
-    //}
-
-    //private void add(int rowIdx, Cell cell)
-    //{
-    //    if (cell.isCollectionCell())
-    //    {
-    //        // TODO
-    //    }
-    //    else
-    //    {
-
-    //        int colIdx = colIdx(cell.name());
-    //        assert colIdx >= 0;
-
-    //        values[rowIdx][colIdx] = cell.value();
-    //        timestamps[rowIdx][colIdx] = cell.timestamp();
-
-    //        switch (cell.kind)
-    //        {
-    //            case DELETED:
-    //                deletionFlags.set(delFlagIdx(rowIdx, colIdx));
-    //                break;
-    //            case EXPIRING:
-    //                if (ttls == null)
-    //                    partition.createTTLs();
-    //                if (ttls[rowIdx] == null)
-    //                    ttls[rowIdx] = new int[partition.columns.length];
-    //                ttls[rowIdx][colIdx] = cell.ttl();
-    //                break;
-    //            case COUNTER:
-    //                // TODP:
-    //        }
-    //    }
-    //}
-
-    //private void ensureCapacityFor(int count)
-    //{
-    //    if (size + count < rowPaths.length)
-    //        return;
-
-    //    int newCapacity = (3 * rowPaths.length) / 2 + 1;
-    //    rowPaths = Arrays.copyOf(rowPaths, newCapacity);
-    //    values = Arrays.copyOf(values, newCapacity);
-    //    timestamps = Arrays.copyOf(timestamps, newCapacity);
-    //    ttls = ttls == null ? null : Arrays.copyOf(ttls, newCapacity);
-    //}
 
     public Layout metadata()
     {
@@ -166,12 +78,12 @@ public class ArrayBackedPartition implements Partition
     // No values (even deleted), live deletion infos
     public boolean isEmpty()
     {
-        return deletion.isLive() && rows == 0;
+        return deletion.isLive() && data.rows() == 0;
     }
 
-    public int getLiveRowCount()
+    public int rowCount()
     {
-        return liveRows;
+        return data.rows();
     }
 
     // Use sparingly, prefer iterator() when possible to save allocations
@@ -267,12 +179,12 @@ public class ArrayBackedPartition implements Partition
 
         public int limit()
         {
-            return rows;
+            return data.rows();
         }
 
         public ClusteringComparator comparator()
         {
-            return comparator();
+            return metadata.comparator();
         }
     }
 
@@ -297,7 +209,7 @@ public class ArrayBackedPartition implements Partition
 
         public DecoratedKey getPartitionKey()
         {
-            return getPartitionKey();
+            return partitionKey;
         }
 
         public DeletionTime partitionLevelDeletion()
@@ -315,6 +227,7 @@ public class ArrayBackedPartition implements Partition
 
             RangeTombstone tombstone = tombstoneIter.next();
             Row row = rowIter.next();
+
             if (comparator().atomComparator().compare(tombstone, row) < 0) {
                 rowIter.rewindOne();
                 return tombstone;

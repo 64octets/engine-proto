@@ -17,9 +17,38 @@
  */
 package org.apache.cassandra.engine;
 
-public interface RangeTombstone extends Atom
+import java.nio.ByteBuffer;
+
+public abstract class RangeTombstone implements Atom
 {
-    public ClusteringPrefix min();
-    public ClusteringPrefix max();
-    public DeletionTime delTime();
+    public abstract ClusteringPrefix min();
+    public abstract ClusteringPrefix max();
+    public abstract DeletionTime delTime();
+
+    public Atom.Kind kind()
+    {
+        return Atom.Kind.RANGE_TOMBSTONE;
+    }
+
+    public int clusteringSize()
+    {
+        return min().clusteringSize();
+    }
+
+    public ByteBuffer getClusteringColumn(int i)
+    {
+        return min().getClusteringColumn(i);
+    }
+
+    @Override
+    public boolean equals(Object other)
+    {
+        if (!(other instanceof RangeTombstone))
+            return false;
+
+        RangeTombstone that = (RangeTombstone)other;
+        return this.min().equals(that.min())
+            && this.max().equals(that.max())
+            && this.delTime().equals(that.delTime());
+    }
 }

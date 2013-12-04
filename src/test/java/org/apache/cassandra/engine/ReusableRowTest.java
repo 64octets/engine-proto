@@ -32,11 +32,15 @@ public class ReusableRowTest
     {
         Layout layout = simpleLayout();
         ReusableRow row = new ReusableRow(layout, 4);
-        writeTo(row).add("a", 2, 0L)
+        writeTo(row).clustering(0)
+                    .add("a", 2, 0L)
                     .add("b", 4, 0L)
                     .add("c1", 0, 0, 0L)
                     .add("c1", 1, 1, 0L)
                     .done();
+
+        assertEquals(1, row.clusteringSize());
+        assertEquals(0, i(row.getClusteringColumn(0)));
 
         assertTrue(row.has(col("a")));
         assertTrue(row.has(col("b")));
@@ -52,11 +56,15 @@ public class ReusableRowTest
         assertEquals(0, row.size(ccol("c2")));
 
         // Reuse
-        writeTo(row).add("b", 1, 0L)
+        writeTo(row).clustering(1)
+                    .add("b", 1, 0L)
                     .add("c1", 0, 5, 0L)
                     .add("c2", 0, 1, 0L)
                     .add("z", 3, 0L)
                     .done();
+
+        assertEquals(1, row.clusteringSize());
+        assertEquals(1, i(row.getClusteringColumn(0)));
 
         assertTrue(row.has(col("b")));
         assertTrue(row.has(ccol("c1")));
@@ -79,14 +87,16 @@ public class ReusableRowTest
     {
         Layout layout = simpleLayout();
         ReusableRow left = new ReusableRow(layout, 3);
-        writeTo(left).add("a", 2, 0L)
+        writeTo(left).clustering(0)
+                     .add("a", 2, 0L)
                      .add("b", 4, 0L)
                      .add("c1", 0, 0, 1L)
                      .add("c1", 1, 0, 1L)
                      .done();
 
         ReusableRow right = new ReusableRow(layout, 3);
-        writeTo(right).add("a", 3, 1L)
+        writeTo(right).clustering(0)
+                      .add("a", 3, 1L)
                       .add("c1", 0, 1, 0L)
                       .add("c1", 1, 1, 1L)
                       .add("c1", 2, 1, 2L)
@@ -94,6 +104,9 @@ public class ReusableRowTest
 
         ReusableRow result = new ReusableRow(layout, 2);
         Rows.merge(layout, left, right, result.writer(), 0);
+
+        assertEquals(1, result.clusteringSize());
+        assertEquals(0, i(result.getClusteringColumn(0)));
 
         assertTrue(result.has(col("a")));
         assertTrue(result.has(col("b")));

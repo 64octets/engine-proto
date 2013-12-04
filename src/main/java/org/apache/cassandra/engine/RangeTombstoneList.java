@@ -593,25 +593,10 @@ public class RangeTombstoneList
         }
     }
 
-    public class Cursor implements RangeTombstone, org.apache.cassandra.engine.utils.Cursor
+    public class Cursor extends RangeTombstone implements org.apache.cassandra.engine.utils.Cursor
     {
         private final DeletionTime delTime = new DeletionTimeWrapper();
         private int idx;
-
-        public Atom.Kind kind()
-        {
-            return Atom.Kind.RANGE_TOMBSTONE;
-        }
-
-        public int clusteringSize()
-        {
-            return min().clusteringSize();
-        }
-
-        public ByteBuffer getClusteringColumn(int i)
-        {
-            return min().getClusteringColumn(i);
-        }
 
         public ClusteringPrefix min()
         {

@@ -17,7 +17,14 @@
  */
 package org.apache.cassandra.engine;
 
-// TODO
+import java.nio.ByteBuffer;
+
 public class RowPath extends ClusteringPrefix
 {
+    // TODO: the goal of this is to validate we do have the right number of value.
+    // This doesn't achieve that, this is just for testing.
+    public RowPath(ByteBuffer... values)
+    {
+        super(values);
+    }
 }

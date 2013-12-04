@@ -28,7 +28,8 @@ public class CursorBasedIterator<C extends Cursor> extends UnmodifiableIterator<
     public CursorBasedIterator(C cursor)
     {
         this.cursor = cursor;
-        reset();
+        if (cursor != null)
+            reset();
     }
 
     public static <C extends Cursor> CursorBasedIterator<C> emptyIterator()

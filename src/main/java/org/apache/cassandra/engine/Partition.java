@@ -28,7 +28,8 @@ public interface Partition //implements Iterable<Row>
     // No values (even deleted), live deletion infos
     public boolean isEmpty();
 
-    public int getLiveRowCount();
+    // Number of rows in this partition.
+    public int rowCount();
 
     // Use sparingly, prefer iterator()/atomIterator when possible
     public Row findRow(RowPath path);

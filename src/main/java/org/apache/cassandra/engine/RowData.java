@@ -35,6 +35,8 @@ public class RowData
     // we'd just allocate a new block. We could even imagine to have a pool of blocks to reduce
     // allocations even more.
 
+    public int rows; // number of rows
+
     private final int clusteringSize;
     private ByteBuffer[] rowPaths;
 
@@ -77,6 +79,11 @@ public class RowData
     public ByteBuffer clusteringColumn(int row, int i)
     {
         return rowPaths[(row * clusteringSize) + i];
+    }
+
+    public int rows()
+    {
+        return rows;
     }
 
     public void setClusteringColumn(int row, int i, ByteBuffer value)
@@ -260,7 +267,6 @@ public class RowData
     // Simple helper object to make simple to write rows into this RowData object.
     public class WriteHelper
     {
-        private int row;
         private int pos;
         private int lastColumnIdx;
 
@@ -271,7 +277,7 @@ public class RowData
 
         public int row()
         {
-            return row;
+            return rows;
         }
 
         public int positionFor(Column c)
@@ -283,7 +289,7 @@ public class RowData
             // column and we need to mark the position.
             if (lastColumnIdx < 0 || !c.equals(columns[lastColumnIdx]))
             {
-                int base = row * columns.length;
+                int base = rows * columns.length;
                 ++lastColumnIdx;
                 // It could be we have to skip a few columns between the last written and this one
                 while (!c.equals(columns[lastColumnIdx]))
@@ -298,22 +304,20 @@ public class RowData
         // called when a row is done
         public void rowDone()
         {
-            ++pos;
-
             for (int i = lastColumnIdx + 1; i < columns.length; i++)
-                columnPositions[(row * columns.length) + i] = -1;
+                columnPositions[(rows * columns.length) + i] = -1;
 
-            // We write the current position as the first value for the next row in
+            ++rows;
+            // We write the next available position as the first value for the next row in
             // columnPositions in case this was the last row that will be written. If
             // it's not, it will just be overriden right away.
-            ++row;
-            columnPositions[row * columns.length] = pos;
+            columnPositions[rows * columns.length] = pos + 1;
             lastColumnIdx = -1;
         }
 
         public void reset()
         {
-            row = 0;
+            rows = 0;
             pos = -1;
             lastColumnIdx = -1;
         }

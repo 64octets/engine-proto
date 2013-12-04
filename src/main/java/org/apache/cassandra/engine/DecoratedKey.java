@@ -19,12 +19,6 @@ package org.apache.cassandra.engine;
 
 import java.nio.ByteBuffer;
 
-public class DecoratedKey
+public interface DecoratedKey
 {
-    public final ByteBuffer key;
-
-    public DecoratedKey(ByteBuffer key)
-    {
-        this.key = key;
-    }
 }

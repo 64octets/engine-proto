@@ -20,6 +20,8 @@ package org.apache.cassandra.engine;
 import java.nio.ByteBuffer;
 import java.util.Comparator;
 
+import com.google.common.base.Objects;
+
 public abstract class AbstractRow implements Row
 {
     public static final long NO_TIMESTAMP = Long.MIN_VALUE;
@@ -114,6 +116,51 @@ public abstract class AbstractRow implements Row
         return data().key(pos);
     }
 
+    @Override
+    public boolean equals(Object other)
+    {
+        if (!(other instanceof Row))
+            return false;
+
+        Row left = this;
+        Row right = (Row)other;
+
+        if (left.clusteringSize() != right.clusteringSize())
+            return false;
+
+        for (int i = 0; i < left.clusteringSize(); i++)
+            if (!left.getClusteringColumn(i).equals(right.getClusteringColumn(i)))
+                return false;
+
+        if (left.cellsCount() != right.cellsCount())
+            return false;
+
+        int leftPos = left.startPosition();
+        int rightPos = right.startPosition();
+
+        int limit = left.endPosition();
+
+        while (leftPos < limit)
+        {
+            if (!left.columnForPosition(leftPos).equals(right.columnForPosition(rightPos)))
+                return false;
+
+            boolean eq = left.isTombstone(leftPos) == right.isTombstone(rightPos)
+                      && left.timestamp(leftPos) == right.timestamp(rightPos)
+                      && left.ttl(leftPos) == right.ttl(rightPos)
+                      && left.localDeletionTime(leftPos) == right.localDeletionTime(rightPos)
+                      && Objects.equal(left.value(leftPos), right.value(rightPos))
+                      && Objects.equal(left.key(leftPos), right.key(rightPos));
+
+            if (!eq)
+                return false;
+
+            ++leftPos;
+            ++rightPos;
+        }
+        return true;
+    }
+
     /**
      * Convenient class to write/merge into an AbstractRow.
      */
@@ -138,7 +185,9 @@ public abstract class AbstractRow implements Row
             for (int i = 0; i < r.clusteringSize(); i++)
                 setClusteringColumn(i, r.getClusteringColumn(i));
 
-            for (int pos = r.startPosition(); pos < r.endPosition(); pos++)
+            int pos = r.startPosition();
+            int limit = r.endPosition();
+            while (pos < limit)
             {
                 Column c = r.columnForPosition(pos);
                 for (int i = 0; i < r.size(c); i++)

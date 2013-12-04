@@ -19,16 +19,24 @@ package org.apache.cassandra.engine;
 
 import java.nio.ByteBuffer;
 
-// TODO
+// TODO: we probably want something a bit more fancy, especially
+// in term of ctor.
 public class ClusteringPrefix implements Clusterable
 {
+    private final ByteBuffer[] prefix;
+
+    public ClusteringPrefix(ByteBuffer... values)
+    {
+        this.prefix = values;
+    }
+
     public int clusteringSize()
     {
-        return 0;
+        return prefix.length;
     }
 
     public ByteBuffer getClusteringColumn(int i)
     {
-        return null;
+        return prefix[i];
     }
 }

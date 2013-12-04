@@ -68,7 +68,7 @@ public abstract class Partitions
             return true;
         }
 
-        public int getLiveRowCount()
+        public int rowCount()
         {
             return 0;
         }
