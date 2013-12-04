@@ -123,7 +123,7 @@ public class ArrayBackedPartition implements Partition
         partition.deletion.add(iterator.partitionLevelDeletion());
 
         RowCursor currentRow = partition.new RowCursor();
-        AbstractRow.Writer writer = currentRow.writer();
+        Rows.Writer writer = currentRow.writer();
 
         while (iterator.hasNext())
         {
@@ -131,11 +131,11 @@ public class ArrayBackedPartition implements Partition
             switch (next.kind())
             {
                 case ROW:
-                    writer.copyRow((Row)next);
+                    Rows.copyRow((Row)next, writer);
                     ++currentRow.row;
                     break;
                 case RANGE_TOMBSTONE:
-                    partition.deletion.add((RangeTombstone)next, partition.comparator());
+                    partition.deletion.add((RangeTombstone)next, partition.metadata());
                     break;
                 case COLLECTION_TOMBSTONE:
                     // TODO

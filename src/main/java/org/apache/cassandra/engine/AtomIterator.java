@@ -22,7 +22,11 @@ import java.util.Iterator;
 
 /**
  * An iterator over the Atoms of a given partition.
- *
+ * <p>
+ * The Atom object returned by a call to next() is only guaranteed to be valid until
+ * the next call to hasNext() or next(). In other words, consumers needs to be warry to
+ * not keep references to the returned objects.
+ * <p>
  * An implementation of AtomIterator *must* provide the following guarantees:
  *   1) the returned Atom should be in clustering order (or reverse clustering order).
  *   2) the tombstone (range and collections) returned by the iterator should *not* shadow

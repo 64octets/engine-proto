@@ -31,8 +31,8 @@ public abstract class TestUtils
 
     private static final Layout simpleLayout = new Layout()
     {
-        private Column[] columns = new Column[] { col("a"), col("b"), ccol("c1"), ccol("c2"), col("z") };
-        private ClusteringComparator comparator = new AbstractClusteringComparator()
+        private final Column[] columns = new Column[] { col("a"), col("b"), ccol("c1"), ccol("c2"), col("z") };
+        private final ClusteringComparator comparator = new AbstractClusteringComparator()
         {
             public int compare(Clusterable c1, Clusterable c2)
             {
@@ -45,12 +45,15 @@ public abstract class TestUtils
                 return i(c1.getClusteringColumn(0)) - i(c2.getClusteringColumn(0));
             }
         };
+        private final Layout.Type type = new Layout.Type()
+        {
+            public String getString(ByteBuffer buffer) { return String.valueOf(i(buffer)); }
+        };
 
         public int clusteringSize() { return 1; }
         public Column[] regularColumns() { return columns; }
         public ClusteringComparator comparator() { return comparator; }
         public boolean hasCollections() { return true; }
-
         public Comparator<ByteBuffer> collectionKeyComparator(Column c)
         {
             return new Comparator<ByteBuffer>()
@@ -61,6 +64,10 @@ public abstract class TestUtils
                 }
             };
         }
+        public Type getClusteringType(int i) { return type; }
+        public Type getKeyType(Column c) {return type; }
+        public Type getType(Column c) {return type; }
+
     };
 
     /**
@@ -134,6 +141,7 @@ public abstract class TestUtils
             private final ClusteringPrefix pmax = new ClusteringPrefix(bb(max));
             private final DeletionTime delTime = DeletionTime.createImmutable(tstamp, (int)(System.currentTimeMillis() / 1000));
 
+            public Layout metadata() { return simpleLayout; }
             public ClusteringPrefix min() { return pmin; }
             public ClusteringPrefix max() { return pmax; }
             public DeletionTime delTime() { return delTime; }
@@ -155,78 +163,6 @@ public abstract class TestUtils
         return new RowWriter(new ReusableRow(layout, 4));
     }
 
-    public static String toString(Atom atom, boolean includeTimestamps)
-    {
-        switch (atom.kind())
-        {
-            case ROW: return toString((Row)atom, includeTimestamps);
-            case RANGE_TOMBSTONE: return toString((RangeTombstone)atom, includeTimestamps);
-            case COLLECTION_TOMBSTONE: throw new UnsupportedOperationException(); // TODO
-        }
-        throw new AssertionError();
-    }
-
-    public static String toString(RangeTombstone rt, boolean includeTimestamps)
-    {
-        String str = String.format("RT[%s, %s]", prefixString(rt.min()), prefixString(rt.max()));
-        if (includeTimestamps)
-            str += "@" + rt.delTime().markedForDeleteAt();
-        return str;
-    }
-
-    private static String prefixString(Clusterable c)
-    {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < c.clusteringSize(); i++)
-        {
-            if (i > 0) sb.append(":");
-            sb.append(i(c.getClusteringColumn(i)));
-        }
-        return sb.toString();
-    }
-
-    public static String toString(Row row, boolean includeTimestamps)
-    {
-        StringBuilder sb = new StringBuilder();
-        sb.append("[").append(prefixString(row)).append("](");
-        int pos = row.startPosition();
-        while (pos < row.endPosition())
-        {
-            if (pos != row.startPosition())
-                sb.append(", ");
-
-            Column c = row.columnForPosition(pos);
-            sb.append(c).append(":");
-            if (c.isCollection())
-            {
-                int size = row.size(c);
-                sb.append("{");
-                for (int i = 0; i < size; i++)
-                {
-                    if (i > 0) sb.append(", ");
-                    appendCell(sb, row, pos + i, includeTimestamps);
-                }
-                sb.append("}");
-                pos += size;
-            }
-            else
-            {
-                appendCell(sb, row, pos++, includeTimestamps);
-            }
-        }
-        return sb.append(")").toString();
-    }
-
-    private static StringBuilder appendCell(StringBuilder sb, Row r, int pos, boolean includeTimestamps)
-    {
-        if (r.key(pos) != null)
-            sb.append(i(r.key(pos))).append(":");
-        sb.append(r.value(pos) == null ? "null" : i(r.value(pos)));
-        if (includeTimestamps)
-            sb.append("@").append(r.timestamp(pos));
-        return sb;
-    }
-
     public static AtomIteratorBuilder newAtomIteratorBuilder(Layout layout, DecoratedKey partitionKey)
     {
         return new AtomIteratorBuilder(layout, partitionKey);
@@ -242,7 +178,7 @@ public abstract class TestUtils
             assertTrue(actual.hasNext());
             Atom e = expected.next();
             Atom a = actual.next();
-            assertEquals(toString(e, false) + " != " + toString(a, false), e, a);
+            assertEquals(Rows.toString(e, true) + " != " + Rows.toString(a, true), e, a);
         }
     }
 
@@ -298,7 +234,7 @@ public abstract class TestUtils
 
         public ReusableRow done()
         {
-            writer.rowDone();
+            writer.done();
             return row;
         }
     }

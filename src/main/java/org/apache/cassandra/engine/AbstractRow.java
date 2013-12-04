@@ -36,6 +36,11 @@ public abstract class AbstractRow implements Row
     protected abstract int row();
     protected abstract RowData data();
 
+    public Layout metadata()
+    {
+        return data().metadata();
+    }
+
     public int clusteringSize()
     {
         return data().clusteringSize();
@@ -164,7 +169,7 @@ public abstract class AbstractRow implements Row
     /**
      * Convenient class to write/merge into an AbstractRow.
      */
-    public static class Writer implements Rows.Merger
+    public static class Writer implements Rows.Writer
     {
         private final RowData data;
         private final RowData.WriteHelper helper;
@@ -196,13 +201,7 @@ public abstract class AbstractRow implements Row
                     ++pos;
                 }
             }
-            rowDone();
-        }
-
-        public void addCell(Column c, Rows.Merger.Resolution resolution, boolean isTombstone, ByteBuffer key, ByteBuffer value, long timestamp, int ttl, long deletionTime)
-        {
-            // Ignore the resolution
-            addCell(c, isTombstone, key, value, timestamp, ttl, deletionTime);
+            done();
         }
 
         public void addCell(Column c, boolean isTombstone, ByteBuffer key, ByteBuffer value, long timestamp, int ttl, long deletionTime)
@@ -211,17 +210,16 @@ public abstract class AbstractRow implements Row
 
             if (isTombstone)
                 data.setTombstone(pos);
-            if (c.isCollection())
-                data.setKey(pos, key);
+            data.setKey(pos, key);
             data.setValue(pos, value);
             data.setTimestamp(pos, timestamp);
             data.setTTL(pos, ttl);
             data.setDeletionTime(pos, deletionTime);
         }
 
-        public void rowDone()
+        public void done()
         {
-            helper.rowDone();
+            helper.done();
         }
 
         // Reset the writer to start writing at the beginning of the underlying RowData

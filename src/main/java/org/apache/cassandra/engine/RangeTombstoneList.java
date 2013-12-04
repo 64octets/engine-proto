@@ -50,7 +50,7 @@ public class RangeTombstoneList
 {
     private static final Logger logger = LoggerFactory.getLogger(RangeTombstoneList.class);
 
-    private final ClusteringComparator comparator;
+    private final Layout metadata;
 
     // Note: we don't want to use a List for the markedAts and delTimes to avoid boxing. We could
     // use a List for starts and ends, but having arrays everywhere is almost simpler.
@@ -61,10 +61,10 @@ public class RangeTombstoneList
 
     private int size;
 
-    private RangeTombstoneList(ClusteringComparator comparator, ClusteringPrefix[] starts, ClusteringPrefix[] ends, long[] markedAts, int[] delTimes, int size)
+    private RangeTombstoneList(Layout metadata, ClusteringPrefix[] starts, ClusteringPrefix[] ends, long[] markedAts, int[] delTimes, int size)
     {
         assert starts.length == ends.length && starts.length == markedAts.length && starts.length == delTimes.length;
-        this.comparator = comparator;
+        this.metadata = metadata;
         this.starts = starts;
         this.ends = ends;
         this.markedAts = markedAts;
@@ -72,9 +72,9 @@ public class RangeTombstoneList
         this.size = size;
     }
 
-    public RangeTombstoneList(ClusteringComparator comparator, int capacity)
+    public RangeTombstoneList(Layout metadata, int capacity)
     {
-        this(comparator, new ClusteringPrefix[capacity], new ClusteringPrefix[capacity], new long[capacity], new int[capacity], 0);
+        this(metadata, new ClusteringPrefix[capacity], new ClusteringPrefix[capacity], new long[capacity], new int[capacity], 0);
     }
 
     public boolean isEmpty()
@@ -89,12 +89,12 @@ public class RangeTombstoneList
 
     public ClusteringComparator comparator()
     {
-        return comparator;
+        return metadata.comparator();
     }
 
     public RangeTombstoneList copy()
     {
-        return new RangeTombstoneList(comparator,
+        return new RangeTombstoneList(metadata,
                                       Arrays.copyOf(starts, size),
                                       Arrays.copyOf(ends, size),
                                       Arrays.copyOf(markedAts, size),
@@ -121,7 +121,7 @@ public class RangeTombstoneList
             return;
         }
 
-        int c = comparator.compare(ends[size-1], start);
+        int c = comparator().compare(ends[size-1], start);
 
         // Fast path if we add in sorted order
         if (c <= 0)
@@ -131,7 +131,7 @@ public class RangeTombstoneList
         else
         {
             // Note: insertFrom expect i to be the insertion point in term of interval ends
-            int pos = Arrays.binarySearch(ends, 0, size, start, comparator);
+            int pos = Arrays.binarySearch(ends, 0, size, start, comparator());
             insertFrom((pos >= 0 ? pos+1 : -pos-1), start, end, markedAt, delTime);
         }
     }
@@ -179,7 +179,7 @@ public class RangeTombstoneList
             int j = 0;
             while (i < size && j < tombstones.size)
             {
-                if (comparator.compare(tombstones.starts[j], ends[i]) < 0)
+                if (comparator().compare(tombstones.starts[j], ends[i]) < 0)
                 {
                     insertFrom(i, tombstones.starts[j], tombstones.ends[j], tombstones.markedAts[j], tombstones.delTimes[j]);
                     j++;
@@ -233,14 +233,14 @@ public class RangeTombstoneList
         {
             // We're exactly on an interval start. The one subtility is that we need to check if
             // the previous is not equal to us and doesn't have a higher marked at
-            if (cursor.idx > 0 && comparator.compare(name, ends[cursor.idx-1]) == 0 && markedAts[cursor.idx-1] > cursor.delTime().markedForDeleteAt())
+            if (cursor.idx > 0 && comparator().compare(name, ends[cursor.idx-1]) == 0 && markedAts[cursor.idx-1] > cursor.delTime().markedForDeleteAt())
                 --cursor.idx;
         }
         else
         {
             // We potentially intersect the range before our "insertion point"
             --cursor.idx;
-            if (cursor.idx < 0 || comparator.compare(name, cursor.max()) > 0)
+            if (cursor.idx < 0 || comparator().compare(name, cursor.max()) > 0)
                 return null;
         }
         return cursor;
@@ -355,8 +355,8 @@ public class RangeTombstoneList
     {
         while (i < size)
         {
-            assert i == 0 || comparator.compare(start, ends[i-1]) >= 0;
-            assert i >= size || comparator.compare(start, ends[i]) < 0;
+            assert i == 0 || comparator().compare(start, ends[i-1]) >= 0;
+            assert i >= size || comparator().compare(start, ends[i]) < 0;
 
             // Do we overwrite the current element?
             if (markedAt > markedAts[i])
@@ -364,7 +364,7 @@ public class RangeTombstoneList
                 // We do overwrite.
 
                 // First deal with what might come before the newly added one.
-                if (comparator.compare(starts[i], start) < 0)
+                if (comparator().compare(starts[i], start) < 0)
                 {
                     addInternal(i, starts[i], start, markedAts[i], delTimes[i]);
                     i++;
@@ -376,14 +376,14 @@ public class RangeTombstoneList
 
                 // If the new element stops before the current one, insert it and
                 // we're done
-                if (comparator.compare(end, starts[i]) <= 0)
+                if (comparator().compare(end, starts[i]) <= 0)
                 {
                     addInternal(i, start, end, markedAt, delTime);
                     return;
                 }
 
                 // Do we overwrite the current element fully?
-                int cmp = comparator.compare(ends[i], end);
+                int cmp = comparator().compare(ends[i], end);
                 if (cmp <= 0)
                 {
                     // We do overwrite fully:
@@ -419,12 +419,12 @@ public class RangeTombstoneList
                 // we don't overwrite the current element
 
                 // If the new interval starts before the current one, insert that new interval
-                if (comparator.compare(start, starts[i]) < 0)
+                if (comparator().compare(start, starts[i]) < 0)
                 {
                     // If we stop before the start of the current element, just insert the new
                     // interval and we're done; otherwise insert until the beginning of the
                     // current element
-                    if (comparator.compare(end, starts[i]) <= 0)
+                    if (comparator().compare(end, starts[i]) <= 0)
                     {
                         addInternal(i, start, end, markedAt, delTime);
                         return;
@@ -437,7 +437,7 @@ public class RangeTombstoneList
                 // some residual parts after ...
 
                 // ... unless we don't extend beyond it.
-                if (comparator.compare(end, ends[i]) <= 0)
+                if (comparator().compare(end, ends[i]) <= 0)
                     return;
 
                 start = ends[i];
@@ -568,11 +568,11 @@ public class RangeTombstoneList
         {
             while (idx < size)
             {
-                int cmp = comparator.compare(name, starts[idx]);
+                int cmp = comparator().compare(name, starts[idx]);
                 if (cmp == 0)
                 {
                     // As for searchInternal, we need to check the previous end
-                    if (idx > 0 && comparator.compare(name, ends[idx-1]) == 0 && markedAts[idx-1] > markedAts[idx])
+                    if (idx > 0 && comparator().compare(name, ends[idx-1]) == 0 && markedAts[idx-1] > markedAts[idx])
                         return markedAts[idx-1] >= timestamp;
                     else
                         return markedAts[idx] >= timestamp;
@@ -583,7 +583,7 @@ public class RangeTombstoneList
                 }
                 else
                 {
-                    if (comparator.compare(name, ends[idx]) <= 0)
+                    if (comparator().compare(name, ends[idx]) <= 0)
                         return markedAts[idx] >= timestamp;
                     else
                         idx++;
@@ -628,9 +628,14 @@ public class RangeTombstoneList
             return size;
         }
 
+        public Layout metadata()
+        {
+            return metadata;
+        }
+
         public ClusteringComparator comparator()
         {
-            return comparator;
+            return metadata.comparator();
         }
 
         private class DeletionTimeWrapper extends DeletionTime

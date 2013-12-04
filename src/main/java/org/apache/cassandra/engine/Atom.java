@@ -29,4 +29,5 @@ public interface Atom extends Clusterable
     public enum Kind { ROW, RANGE_TOMBSTONE, COLLECTION_TOMBSTONE };
 
     public Kind kind();
+    public Layout metadata();
 }

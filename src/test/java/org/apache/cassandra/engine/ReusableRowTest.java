@@ -18,6 +18,7 @@
 package org.apache.cassandra.engine;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.Comparator;
 
 import org.junit.Test;
@@ -103,7 +104,7 @@ public class ReusableRowTest
                       .done();
 
         ReusableRow result = new ReusableRow(layout, 2);
-        Rows.merge(layout, left, right, result.writer(), 0);
+        Rows.merge(layout, Arrays.<Row>asList(left, right), new Rows.MergeHelper(result.writer(), 0, 2));
 
         assertEquals(1, result.clusteringSize());
         assertEquals(0, i(result.getClusteringColumn(0)));

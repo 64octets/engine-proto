@@ -43,15 +43,15 @@ public class DeletionInfo
         this(topLevel, null);
     }
 
-    public DeletionInfo(ClusteringPrefix start, ClusteringPrefix end, ClusteringComparator comparator, long markedForDeleteAt, int localDeletionTime)
+    public DeletionInfo(ClusteringPrefix start, ClusteringPrefix end, Layout metadata, long markedForDeleteAt, int localDeletionTime)
     {
-        this(DeletionTime.LIVE, new RangeTombstoneList(comparator, 1));
+        this(DeletionTime.LIVE, new RangeTombstoneList(metadata, 1));
         ranges.add(start, end, markedForDeleteAt, localDeletionTime);
     }
 
-    public DeletionInfo(RangeTombstone rangeTombstone, ClusteringComparator comparator)
+    public DeletionInfo(RangeTombstone rangeTombstone, Layout metadata)
     {
-        this(rangeTombstone.min(), rangeTombstone.max(), comparator, rangeTombstone.delTime().markedForDeleteAt(), rangeTombstone.delTime().localDeletionTime());
+        this(rangeTombstone.min(), rangeTombstone.max(), metadata, rangeTombstone.delTime().markedForDeleteAt(), rangeTombstone.delTime().localDeletionTime());
     }
 
     public static DeletionInfo live()
@@ -141,10 +141,10 @@ public class DeletionInfo
             topLevel = newInfo;
     }
 
-    public void add(RangeTombstone tombstone, ClusteringComparator comparator)
+    public void add(RangeTombstone tombstone, Layout metadata)
     {
         if (ranges == null)
-            ranges = new RangeTombstoneList(comparator, 1);
+            ranges = new RangeTombstoneList(metadata, 1);
 
         ranges.add(tombstone);
     }

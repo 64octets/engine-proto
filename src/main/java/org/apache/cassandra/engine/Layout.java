@@ -30,4 +30,13 @@ public interface Layout
     public Column[] regularColumns();
     public Comparator<ByteBuffer> collectionKeyComparator(Column c);
     public boolean hasCollections();
+
+    public Type getClusteringType(int i);
+    public Type getKeyType(Column c);
+    public Type getType(Column c);
+
+    public interface Type
+    {
+        public String getString(ByteBuffer value);
+    }
 }

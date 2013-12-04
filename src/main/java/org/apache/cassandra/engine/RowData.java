@@ -35,9 +35,10 @@ public class RowData
     // we'd just allocate a new block. We could even imagine to have a pool of blocks to reduce
     // allocations even more.
 
+    public final Layout metadata;
+
     public int rows; // number of rows
 
-    private final int clusteringSize;
     private ByteBuffer[] rowPaths;
 
     private final Column[] columns;
@@ -55,12 +56,12 @@ public class RowData
     private long[] delTimes;
     private ByteBuffer[] collectionKeys;
 
-    RowData(Layout layout, int rowsCapacity, int cellsCapacity)
+    RowData(Layout metadata, int rowsCapacity, int cellsCapacity)
     {
-        this.clusteringSize = layout.clusteringSize();
-        this.rowPaths = new ByteBuffer[rowsCapacity * clusteringSize];
+        this.metadata = metadata;
+        this.rowPaths = new ByteBuffer[rowsCapacity * metadata.clusteringSize()];
 
-        this.columns = layout.regularColumns();
+        this.columns = metadata.regularColumns();
         this.columnPositions = new int[(rowsCapacity * columns.length) + 1];
 
         this.delFlags = new BitSet(cellsCapacity);
@@ -68,17 +69,22 @@ public class RowData
         this.timestamps = new long[cellsCapacity];
         this.ttls = new int[cellsCapacity];
         this.delTimes = new long[cellsCapacity];
-        this.collectionKeys = layout.hasCollections() ? new ByteBuffer[cellsCapacity] : null;
+        this.collectionKeys = metadata.hasCollections() ? new ByteBuffer[cellsCapacity] : null;
+    }
+
+    public Layout metadata()
+    {
+        return metadata;
     }
 
     public int clusteringSize()
     {
-        return clusteringSize;
+        return metadata.clusteringSize();
     }
 
     public ByteBuffer clusteringColumn(int row, int i)
     {
-        return rowPaths[(row * clusteringSize) + i];
+        return rowPaths[(row * clusteringSize()) + i];
     }
 
     public int rows()
@@ -89,7 +95,7 @@ public class RowData
     public void setClusteringColumn(int row, int i, ByteBuffer value)
     {
         ensureCapacityForRow(row);
-        rowPaths[(row * clusteringSize) + i] = value;
+        rowPaths[(row * clusteringSize()) + i] = value;
     }
 
     private int columnIdx(Column c)
@@ -102,14 +108,10 @@ public class RowData
 
     public int startPosition(int row)
     {
-        int base = row * columns.length;
-        for (int i = 0; i < columns.length; i++)
-        {
-            int pos = columnPositions[base + i];
-            if (pos >= 0)
-                return pos;
-        }
-        throw new AssertionError("That row has no data. This should not happen");
+        int start = internalStart(row);
+        if (start < 0)
+            throw new AssertionError("That row has no data. This should not happen");
+        return start;
     }
 
     public int endPosition(int row)
@@ -117,9 +119,25 @@ public class RowData
         return startPosition(row+1);
     }
 
+    public int internalStart(int row)
+    {
+        int base = row * columns.length;
+        for (int i = 0; i < columns.length; i++)
+        {
+            int pos = columnPositions[base + i];
+            if (pos >= 0)
+                return pos;
+        }
+        return -1;
+    }
+
     public int cellsCount(int row)
     {
-        return endPosition(row) - startPosition(row);
+        int start = internalStart(row);
+        if (start < 0)
+            return 0;
+
+        return endPosition(row) - start;
     }
 
     public int position(int row, Column c)
@@ -234,13 +252,13 @@ public class RowData
 
     private void ensureCapacityForRow(int row)
     {
-        int currentCapacity = rowPaths.length / clusteringSize;
+        int currentCapacity = rowPaths.length / clusteringSize();
         if (row < currentCapacity)
             return;
 
         int newCapacity = (currentCapacity * 3) / 2 + 1;
 
-        rowPaths = Arrays.copyOf(rowPaths, newCapacity * clusteringSize);
+        rowPaths = Arrays.copyOf(rowPaths, newCapacity * clusteringSize());
         columnPositions = Arrays.copyOf(columnPositions, (newCapacity * columns.length) + 1);
     }
 
@@ -302,7 +320,7 @@ public class RowData
         }
 
         // called when a row is done
-        public void rowDone()
+        public void done()
         {
             for (int i = lastColumnIdx + 1; i < columns.length; i++)
                 columnPositions[(rows * columns.length) + i] = -1;
