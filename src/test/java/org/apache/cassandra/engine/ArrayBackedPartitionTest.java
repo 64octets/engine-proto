@@ -39,6 +39,39 @@ public class ArrayBackedPartitionTest
         validatePartition(ArrayBackedPartition.accumulate(builder.build(), 1, 1), builder);
     }
 
+    @Test
+    public void testSliceIterator()
+    {
+        AtomIteratorBuilder builder = newAtomIteratorBuilder(layout, dk(0));
+        builder.add(getRow1()).add(rt(1, 4, 2)).add(getRow2()).add(getRow3());
+
+        Partition p = ArrayBackedPartition.accumulate(builder.build(), 3, 10);
+        Slices slices;
+
+        // [0, 10] -- should fetch all
+        assertSameIterator(builder.build(), p.atomIterator(slices(0, 10)));
+
+        // [1, 7] -- RT and row2
+        builder = newAtomIteratorBuilder(layout, dk(0)).add(rt(1, 4, 2)).add(getRow2());
+        assertSameIterator(builder.build(), p.atomIterator(slices(1, 7)));
+
+        // [1, 11] -- all except row1
+        builder = newAtomIteratorBuilder(layout, dk(0)).add(rt(1, 4, 2)).add(getRow2()).add(getRow3());
+        assertSameIterator(builder.build(), p.atomIterator(slices(1, 11)));
+
+        // [6, 15] -- only row3
+        builder = newAtomIteratorBuilder(layout, dk(0)).add(getRow3());
+        assertSameIterator(builder.build(), p.atomIterator(slices(6, 15)));
+
+        // [2, 4] -- nothing
+        builder = newAtomIteratorBuilder(layout, dk(0));
+        assertSameIterator(builder.build(), p.atomIterator(slices(2, 4)));
+
+        // [11, 15] -- nothing
+        builder = newAtomIteratorBuilder(layout, dk(0));
+        assertSameIterator(builder.build(), p.atomIterator(slices(11, 15)));
+    }
+
     private static Row getRow1()
     {
         return newRowWriter(layout).clustering(0)

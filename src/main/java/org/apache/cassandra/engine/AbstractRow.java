@@ -185,25 +185,6 @@ public abstract class AbstractRow implements Row
             data.setClusteringColumn(helper.row(), i, value);
         }
 
-        public void copyRow(Row r)
-        {
-            for (int i = 0; i < r.clusteringSize(); i++)
-                setClusteringColumn(i, r.getClusteringColumn(i));
-
-            int pos = r.startPosition();
-            int limit = r.endPosition();
-            while (pos < limit)
-            {
-                Column c = r.columnForPosition(pos);
-                for (int i = 0; i < r.size(c); i++)
-                {
-                    addCell(c, r.isTombstone(pos), r.key(pos), r.value(pos), r.timestamp(pos), r.ttl(pos), r.localDeletionTime(pos));
-                    ++pos;
-                }
-            }
-            done();
-        }
-
         public void addCell(Column c, boolean isTombstone, ByteBuffer key, ByteBuffer value, long timestamp, int ttl, long deletionTime)
         {
             int pos = helper.positionFor(c);

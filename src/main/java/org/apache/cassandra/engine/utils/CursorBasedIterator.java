@@ -17,9 +17,9 @@
  */
 package org.apache.cassandra.engine.utils;
 
-import com.google.common.collect.UnmodifiableIterator;
+import com.google.common.collect.AbstractIterator;
 
-public class CursorBasedIterator<C extends Cursor> extends UnmodifiableIterator<C>
+public class CursorBasedIterator<C extends Cursor> extends AbstractIterator<C>
 {
     private static final EmptyIterator empty = new EmptyIterator();
 
@@ -42,20 +42,10 @@ public class CursorBasedIterator<C extends Cursor> extends UnmodifiableIterator<
         cursor.position(-1);
     }
 
-    public boolean hasNext()
-    {
-        return cursor.position() + 1 < cursor.limit();
-    }
-
-    public void rewindOne()
-    {
-        cursor.position(cursor.position() - 1);
-    }
-
-    public C next()
+    protected C computeNext()
     {
         cursor.position(cursor.position() + 1);
-        return cursor;
+        return cursor.position() < cursor.limit() ? cursor : endOfData();
     }
 
     private static class EmptyIterator extends CursorBasedIterator<Cursor>
@@ -66,9 +56,9 @@ public class CursorBasedIterator<C extends Cursor> extends UnmodifiableIterator<
         }
 
         @Override
-        public boolean hasNext()
+        protected Cursor computeNext()
         {
-            return false;
+            return endOfData();
         }
     }
 }

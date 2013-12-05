@@ -27,7 +27,6 @@ import com.google.common.collect.AbstractIterator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.cassandra.engine.utils.CursorBasedIterator;
 import org.apache.cassandra.engine.utils.Cursors;
 
 /**
@@ -295,9 +294,9 @@ public class RangeTombstoneList
         return false;
     }
 
-    public CursorBasedIterator<Cursor> iterator()
+    public Iterator<? extends RangeTombstone> iterator(Slices slices)
     {
-        return new CursorBasedIterator<Cursor>(new Cursor());
+        return slices.makeIterator(new Cursor());
     }
 
     @Override

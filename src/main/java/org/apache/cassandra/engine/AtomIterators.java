@@ -24,10 +24,86 @@ import com.google.common.collect.AbstractIterator;
 
 public abstract class AtomIterators
 {
+    /**
+     * Returns an iterator that merge other iterators.
+     */
     public static AtomIterator merge(List<AtomIterator> iterators, int now)
     {
         assert !iterators.isEmpty();
         return iterators.size() == 1 ? iterators.get(0) : new AtomMergeIterator(iterators, now);
+    }
+
+    /**
+     * Returns an iterator that filter any tombstone older than {@code gcBefore}
+     * in {@code iterator}.
+     */
+    public static AtomIterator purge(final AtomIterator iterator, final int now, final int gcBefore)
+    {
+        return new AbstractFilteringAtomIterator(iterator)
+        {
+            private final ReusableRow result = new ReusableRow(iterator.metadata(), iterator.metadata().regularColumns().length);
+
+            protected RangeTombstone filter(RangeTombstone rt)
+            {
+                return rt.delTime().localDeletionTime() < gcBefore ? null : rt;
+            }
+
+            protected Row filter(Row row)
+            {
+                Rows.Writer writer = result.writer();
+                int limit = row.endPosition();
+                boolean writtenOne = false;
+                for (int i = row.startPosition(); i < limit; i++)
+                {
+                    if (row.isDeleted(i, now))
+                        continue;
+
+                    writtenOne = true;
+                    Rows.copyCell(row, i, writer);
+                }
+                return writtenOne ? result : null;
+            }
+        };
+    }
+
+    /**
+     * Returns an iterator that only return atoms from {@code iterator} until
+     * {@code counter} has counted enough data.
+     */
+    public static AtomIterator count(final AtomIterator iterator, final DataCounter counter, final int now)
+    {
+        counter.countPartition();
+        return new AbstractFilteringAtomIterator(iterator)
+        {
+            private final ReusableRow result = new ReusableRow(iterator.metadata(), iterator.metadata().regularColumns().length);
+
+            @Override
+            protected boolean isDone()
+            {
+                return counter.hasEnoughDataForPartition();
+            }
+
+            protected RangeTombstone filter(RangeTombstone rt)
+            {
+                return rt;
+            }
+
+            protected Row filter(Row row)
+            {
+                int live = 0;
+                int tombstoned = 0;
+                int limit = row.endPosition();
+                for (int i = row.startPosition(); i < limit; i++)
+                {
+                    if (row.isDeleted(i, now))
+                        ++tombstoned;
+                    else
+                        ++live;
+                }
+                counter.countRow(live, tombstoned);
+                return row;
+            }
+        };
     }
 
     /**

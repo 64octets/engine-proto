@@ -41,4 +41,5 @@ public interface Partition //implements Iterable<Row>
 
     // Iterator over the Atom contained in this partition.
     public AtomIterator atomIterator();
+    public AtomIterator atomIterator(Slices slices);
 }

@@ -18,6 +18,7 @@
 package org.apache.cassandra.engine;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 
 // TODO: we probably want something a bit more fancy, especially
 // in term of ctor.
@@ -38,5 +39,28 @@ public class ClusteringPrefix implements Clusterable
     public ByteBuffer getClusteringColumn(int i)
     {
         return prefix[i];
+    }
+
+    @Override
+    public boolean equals(Object other)
+    {
+        if (!(other instanceof ClusteringPrefix))
+            return false;
+
+        ClusteringPrefix that = (ClusteringPrefix)other;
+        if (this.prefix.length != that.prefix.length)
+            return false;
+
+        for (int i = 0; i < prefix.length; i++)
+            if (!this.prefix[i].equals(that.prefix[i]))
+                return false;
+
+        return true;
+    }
+
+    @Override
+    public int hashCode()
+    {
+        return Arrays.hashCode(prefix);
     }
 }

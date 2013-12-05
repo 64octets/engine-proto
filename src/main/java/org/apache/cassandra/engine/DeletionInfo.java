@@ -22,8 +22,6 @@ import java.util.*;
 import com.google.common.base.Objects;
 import com.google.common.collect.Iterators;
 
-import org.apache.cassandra.engine.utils.CursorBasedIterator;
-
 public class DeletionInfo
 {
     // We don't have way to represent the full interval of keys (Interval don't support the minimum token as the right bound),
@@ -203,9 +201,9 @@ public class DeletionInfo
         return ranges != null && !ranges.isEmpty();
     }
 
-    public CursorBasedIterator<RangeTombstoneList.Cursor> rangeIterator()
+    public Iterator<? extends RangeTombstone> rangeIterator(Slices slices)
     {
-        return ranges == null ? CursorBasedIterator.<RangeTombstoneList.Cursor>emptyIterator() : ranges.iterator();
+        return ranges == null ? Iterators.<RangeTombstone>emptyIterator() : ranges.iterator(slices);
     }
 
     //@Override

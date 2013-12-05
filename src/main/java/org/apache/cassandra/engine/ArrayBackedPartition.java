@@ -17,6 +17,8 @@
  */
 package org.apache.cassandra.engine;
 
+import java.util.Iterator;
+
 import com.google.common.collect.AbstractIterator;
 
 import org.apache.cassandra.engine.utils.*;
@@ -98,20 +100,14 @@ public class ArrayBackedPartition implements Partition
     //    return new IndexBasedIterator<Row>(new RowCursor());
     //}
 
-    //public AtomIterator atomIterator(Slices slices)
-    //{
-    //    // TODO: can have a specialized version if slices selects all
-    //    return new PartitionAtomIterator(slices);
-    //}
-
     public AtomIterator atomIterator()
     {
-        return new PartitionAtomIterator();
+        return new PartitionAtomIterator(Slices.SELECT_ALL);
     }
 
-    private CursorBasedIterator<RowCursor> rowIterator()
+    public AtomIterator atomIterator(Slices slices)
     {
-        return new CursorBasedIterator<RowCursor>(new RowCursor());
+        return new PartitionAtomIterator(slices);
     }
 
     public static Partition accumulate(AtomIterator iterator, int rowsCapacity, int cellsCapacity)
@@ -191,15 +187,16 @@ public class ArrayBackedPartition implements Partition
     private class PartitionAtomIterator extends AbstractIterator<Atom> implements AtomIterator
     {
         // TODO needs to handle collection tombstones ...
-        private final CursorBasedIterator<RangeTombstoneList.Cursor> tombstoneIter;
-        private final CursorBasedIterator<RowCursor> rowIter;
+        private final Iterator<? extends RangeTombstone> tombstoneIter;
+        private final Iterator<? extends Row> rowIter;
 
-        //public PartitionAtomIterator(Slices slices)
-        public PartitionAtomIterator()
+        private RangeTombstone nextTombstone;
+        private Row nextRow;
+
+        public PartitionAtomIterator(Slices slices)
         {
-            this.tombstoneIter = deletion.rangeIterator();
-            //this.rowIter = slices.makeIterator(new IndexedCellIterator());
-            this.rowIter = rowIterator();
+            this.tombstoneIter = deletion.rangeIterator(slices);
+            this.rowIter = slices.makeIterator(new RowCursor());
         }
 
         public Layout metadata()
@@ -219,20 +216,33 @@ public class ArrayBackedPartition implements Partition
 
         protected Atom computeNext()
         {
-            if (!tombstoneIter.hasNext())
-                return rowIter.hasNext() ? rowIter.next() : endOfData();
+            nextTombstone = nextTombstone == null && tombstoneIter.hasNext() ? tombstoneIter.next() : nextTombstone;
+            nextRow = nextRow == null && rowIter.hasNext() ? rowIter.next() : nextRow;
 
-            if (!rowIter.hasNext())
-                return tombstoneIter.next();
+            if (nextTombstone == null)
+            {
+                if (nextRow == null)
+                    return endOfData();
 
-            RangeTombstone tombstone = tombstoneIter.next();
-            Row row = rowIter.next();
+                Row row = nextRow;
+                nextRow = null;
+                return row;
+            }
 
-            if (comparator().atomComparator().compare(tombstone, row) < 0) {
-                rowIter.rewindOne();
+            if (nextRow == null)
+                return nextTombstone;
+
+            if (comparator().atomComparator().compare(nextTombstone, nextRow) < 0)
+            {
+                RangeTombstone tombstone = nextTombstone;
+                nextTombstone = null;
                 return tombstone;
-            } else {
-                tombstoneIter.rewindOne();
+            }
+            else
+            {
+                RangeTombstone tombstone = nextTombstone;
+                Row row = nextRow;
+                nextRow = null;
                 return row;
             }
         }

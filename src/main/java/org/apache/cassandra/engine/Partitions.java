@@ -82,8 +82,8 @@ public abstract class Partitions
         public AtomIterator atomIterator()
         {
             // Reallocating an iterator every time is theoretically inefficient, but
-            // most usage should never call this in the first place, and if they do
-            // calling it multiple time would be silly
+            // most usage should never call this in the first place, and certainely
+            // not more than once
             return new AtomIterator()
             {
                 public Layout metadata()
@@ -120,6 +120,11 @@ public abstract class Partitions
                 {
                 }
             };
+        }
+
+        public AtomIterator atomIterator(Slices slices)
+        {
+            return atomIterator();
         }
     }
 }

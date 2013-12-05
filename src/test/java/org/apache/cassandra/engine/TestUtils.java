@@ -153,6 +153,11 @@ public abstract class TestUtils
         return new IntDecoratedKey(i);
     }
 
+    public static Slices slices(int start, int end)
+    {
+        return Slices.create(new ClusteringPrefix(bb(start)), new ClusteringPrefix(bb(end)));
+    }
+
     public static RowWriter writeTo(ReusableRow row)
     {
         return new RowWriter(row);

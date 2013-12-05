@@ -46,6 +46,11 @@ public abstract class Rows
         writer.done();
     }
 
+    public static void copyCell(Row r, int position, Writer writer)
+    {
+        writer.addCell(r.columnForPosition(position), r.isTombstone(position), r.key(position), r.value(position), r.timestamp(position), r.ttl(position), r.localDeletionTime(position));
+    }
+
     public static String toString(Atom atom)
     {
         return toString(atom, false);
