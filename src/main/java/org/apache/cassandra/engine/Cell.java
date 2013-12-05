@@ -18,39 +18,23 @@
 package org.apache.cassandra.engine;
 
 import java.nio.ByteBuffer;
-import java.util.Arrays;
-import java.util.BitSet;
 
-
-// TODO: We should specialize for dense rows, where we have only one cell per row.
-public class ReusableRow extends AbstractRow
+public interface Cell
 {
-    private final RowData data;
+    public Column column();
 
-    public ReusableRow(Layout layout, int initialCapacity)
-    {
-        this.data = new RowData(layout, 1, initialCapacity);
-    }
+    // Whether or not the cell at position pos is deleted given the current time, i.e. whether
+    // it is a tombstone or an expired cell.
+    public boolean isDeleted(int now);
 
-    protected RowData data()
-    {
-        return data;
-    }
+    public boolean isTombstone();
+    public ByteBuffer value();
+    public long timestamp();
+    public int ttl();
+    public long localDeletionTime();
 
-    protected int row()
-    {
-        return 0;
-    }
+    // For collections cells
+    public ByteBuffer key();
 
-    // Reset a reusable row to which we just wrote and want to now read
-    public void reset()
-    {
-        getReusableCellForWrite().reset();
-    }
-
-    // Clear out the row for reuse
-    public void clear()
-    {
-        getReusableCellForWrite().clear();
-    }
+    //public long timestampOfLastDelete(Column c); // For counters
 }

@@ -18,39 +18,8 @@
 package org.apache.cassandra.engine;
 
 import java.nio.ByteBuffer;
-import java.util.Arrays;
-import java.util.BitSet;
 
-
-// TODO: We should specialize for dense rows, where we have only one cell per row.
-public class ReusableRow extends AbstractRow
+public interface Allocator
 {
-    private final RowData data;
-
-    public ReusableRow(Layout layout, int initialCapacity)
-    {
-        this.data = new RowData(layout, 1, initialCapacity);
-    }
-
-    protected RowData data()
-    {
-        return data;
-    }
-
-    protected int row()
-    {
-        return 0;
-    }
-
-    // Reset a reusable row to which we just wrote and want to now read
-    public void reset()
-    {
-        getReusableCellForWrite().reset();
-    }
-
-    // Clear out the row for reuse
-    public void clear()
-    {
-        getReusableCellForWrite().clear();
-    }
+    public ByteBuffer clone(ByteBuffer buffer);
 }

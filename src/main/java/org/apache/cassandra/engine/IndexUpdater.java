@@ -17,40 +17,17 @@
  */
 package org.apache.cassandra.engine;
 
-import java.nio.ByteBuffer;
-import java.util.Arrays;
-import java.util.BitSet;
-
-
-// TODO: We should specialize for dense rows, where we have only one cell per row.
-public class ReusableRow extends AbstractRow
+// TODO: this is probably not the interface we want. Just a moackup to see we can handle
+// this during merge.
+public interface IndexUpdater
 {
-    private final RowData data;
+    // A entirely new row is inserted
+    public void insert(Row row);
 
-    public ReusableRow(Layout layout, int initialCapacity)
-    {
-        this.data = new RowData(layout, 1, initialCapacity);
-    }
+    // A row in a memtable is updated by a new update. It's up to the updater to figure
+    // which cells are updated (overriden or removed).
+    public void update(Row old, Row row);
 
-    protected RowData data()
-    {
-        return data;
-    }
-
-    protected int row()
-    {
-        return 0;
-    }
-
-    // Reset a reusable row to which we just wrote and want to now read
-    public void reset()
-    {
-        getReusableCellForWrite().reset();
-    }
-
-    // Clear out the row for reuse
-    public void clear()
-    {
-        getReusableCellForWrite().clear();
-    }
+    // The row is entirely removed (due to being deleted by a range tombstone or partition level tombstone)
+    public void remove(Row row);
 }

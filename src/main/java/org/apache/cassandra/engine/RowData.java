@@ -22,6 +22,9 @@ import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.BitSet;
 
+import com.google.common.base.Objects;
+import com.google.common.collect.UnmodifiableIterator;
+
 /**
  * A container for arrays containing one or more row data.
  *
@@ -42,12 +45,16 @@ public class RowData
     private ByteBuffer[] rowPaths;
 
     private final Column[] columns;
-    // Positions of columns in the following up arrays. The positions for row 'i' are the ones
-    // in [ i * columns.length, (i + 1) * columns.length]. The last index of the range represents
-    // the index at which the row itself stops (or rather the first index of the elements of
-    // row 'i+1'). In particular, the valu at index 'rows * (columns.length + 1)' will be the (valid)
-    // size of the values, timestamps, ... arrays below.
-    private int[] columnPositions;
+
+    // Cells start and end positions for each column of each row.
+    // Note: we record both start and end positions which allows to support inserting cells
+    // in unsorted order (for a given row, useful for the write path). It also simplify the
+    // implementation a bit. In the cases where cells are added in sorted order  anyway (the
+    // read path), it would be possible to use only one array for the start position and the
+    // end position would be computed by used the next non-negative position in the array. We
+    // keep it simple for now though.
+    private int[] columnStartPositions;
+    private int[] columnEndPositions;
 
     private final BitSet delFlags;
     private ByteBuffer[] values;
@@ -61,8 +68,12 @@ public class RowData
         this.metadata = metadata;
         this.rowPaths = new ByteBuffer[rowsCapacity * metadata.clusteringSize()];
 
+        // TODO: instead of using all columns all the time, we could collect the column actually
+        // used by the iterators that will be use to populate this as an optimization for tables
+        // that have lots of columns but most are rarely set.
         this.columns = metadata.regularColumns();
-        this.columnPositions = new int[(rowsCapacity * columns.length) + 1];
+        this.columnStartPositions = new int[rowsCapacity * columns.length];
+        this.columnEndPositions = new int[rowsCapacity * columns.length];
 
         this.delFlags = new BitSet(cellsCapacity);
         this.values = new ByteBuffer[cellsCapacity];
@@ -87,167 +98,69 @@ public class RowData
         return rowPaths[(row * clusteringSize()) + i];
     }
 
-    public int rows()
-    {
-        return rows;
-    }
-
     public void setClusteringColumn(int row, int i, ByteBuffer value)
     {
         ensureCapacityForRow(row);
         rowPaths[(row * clusteringSize()) + i] = value;
     }
 
-    private int columnIdx(Column c)
+    public int rows()
+    {
+        return rows;
+    }
+
+    public int cells()
+    {
+        return columnEndPositions[(rows * columns.length) - 1];
+    }
+
+    private int findColumn(Column c)
     {
         for (int i = 0; i < columns.length; i++)
             if (columns[i].equals(c))
                 return i;
-        return -1;
-    }
-
-    public int startPosition(int row)
-    {
-        int start = internalStart(row);
-        if (start < 0)
-            throw new AssertionError("That row has no data. This should not happen");
-        return start;
-    }
-
-    public int endPosition(int row)
-    {
-        return startPosition(row+1);
-    }
-
-    public int internalStart(int row)
-    {
-        int base = row * columns.length;
-        for (int i = 0; i < columns.length; i++)
-        {
-            int pos = columnPositions[base + i];
-            if (pos >= 0)
-                return pos;
-        }
-        return -1;
+        throw new AssertionError();
     }
 
     public int cellsCount(int row)
     {
-        int start = internalStart(row);
-        if (start < 0)
+        int base = row * columns.length;
+
+        int first = -1;
+        for (int i = 0; i < columns.length; i++)
+        {
+            int idx = base + i;
+            if (columnStartPositions[idx] < columnEndPositions[idx])
+            {
+                first = columnStartPositions[idx];
+                break;
+            }
+        }
+
+        if (first == -1)
             return 0;
 
-        return endPosition(row) - start;
-    }
-
-    public int position(int row, Column c)
-    {
-        int idx = columnIdx(c);
-        return idx < 0 ? -1 : columnPositions[(row * columns.length) + idx];
-    }
-
-    public Column columnForPosition(int row, int pos)
-    {
-        int base = row * columns.length;
         int last = -1;
-        for (int i = base; i < columnPositions.length; i++)
+        for (int i = columns.length - 1; i >= 0; i--)
         {
-            int p = columnPositions[i];
-            if (p == pos)
-                return columns[i - base];
-            else if (p > pos)
-                return columns[last];
-            else
-                last = i - base;
+            int idx = base + i;
+            if (columnStartPositions[idx] < columnEndPositions[idx])
+            {
+                last = columnEndPositions[idx];
+                break;
+            }
         }
-        throw new AssertionError();
+
+        assert last != -1;
+        return last - first;
     }
 
     public int size(int row, Column c)
     {
-        int idx = columnIdx(c);
-        if (idx < 0)
-            return 0;
-
-        int base = (row * columns.length) + idx;
-        int basePos = columnPositions[base];
-        if (basePos < 0)
-            return 0;
-
-        for (int i = base + 1; i < columnPositions.length; i++)
-        {
-            int pos = columnPositions[i];
-            if (pos >= 0)
-                return pos - basePos;
-        }
-
-        throw new AssertionError("The last element of columnPositions should always be positive");
-    }
-
-    public boolean isTombstone(int idx)
-    {
-        return delFlags.get(idx);
-    }
-
-    public ByteBuffer value(int idx)
-    {
-        return values[idx];
-    }
-
-    public long timestamp(int idx)
-    {
-        return timestamps[idx];
-    }
-
-    public int ttl(int idx)
-    {
-        return ttls[idx];
-    }
-
-    public long deletionTime(int idx)
-    {
-        return delTimes[idx];
-    }
-
-    public ByteBuffer key(int idx)
-    {
-        return collectionKeys == null ? null : collectionKeys[idx];
-    }
-
-    public void setTombstone(int idx)
-    {
-        ensureCapacityFor(idx);
-        delFlags.set(idx);
-    }
-
-    public void setValue(int idx, ByteBuffer value)
-    {
-        ensureCapacityFor(idx);
-        values[idx] = value;
-    }
-
-    public void setTimestamp(int idx, long tstamp)
-    {
-        ensureCapacityFor(idx);
-        timestamps[idx] = tstamp;
-    }
-
-    public void setTTL(int idx, int ttl)
-    {
-        ensureCapacityFor(idx);
-        ttls[idx] = ttl;
-    }
-
-    public void setDeletionTime(int idx, long deletionTime)
-    {
-        ensureCapacityFor(idx);
-        delTimes[idx] = deletionTime;
-    }
-
-    public void setKey(int idx, ByteBuffer key)
-    {
-        ensureCapacityFor(idx);
-        collectionKeys[idx] = key;
+        int idx = findColumn(c);
+        int start = columnStartPositions[idx];
+        int end = columnEndPositions[idx];
+        return start < end ? end - start : 0;
     }
 
     private void ensureCapacityForRow(int row)
@@ -259,7 +172,8 @@ public class RowData
         int newCapacity = (currentCapacity * 3) / 2 + 1;
 
         rowPaths = Arrays.copyOf(rowPaths, newCapacity * clusteringSize());
-        columnPositions = Arrays.copyOf(columnPositions, (newCapacity * columns.length) + 1);
+        columnStartPositions = Arrays.copyOf(columnStartPositions, newCapacity * columns.length);
+        columnEndPositions = Arrays.copyOf(columnEndPositions, newCapacity * columns.length);
     }
 
     private void ensureCapacityFor(int idxToSet)
@@ -277,67 +191,191 @@ public class RowData
             collectionKeys = Arrays.copyOf(collectionKeys, newSize);
     }
 
-    public WriteHelper createWriteHelper()
+    public ReusableCell createCell()
     {
-        return new WriteHelper();
+        return new ReusableCell();
     }
 
-    // Simple helper object to make simple to write rows into this RowData object.
-    public class WriteHelper
+    public class ReusableCell extends UnmodifiableIterator<Cell> implements Cell, Rows.Writer
     {
-        private int pos;
-        private int lastColumnIdx;
+        private int row;
+        private int columnIdx;
+        private int position = -1;
 
-        private WriteHelper()
+        private boolean rowWritten;
+        private boolean ready;
+
+        public int currentRow()
         {
-            reset();
+            return row;
         }
 
-        public int row()
+        public void setToRow(int row)
         {
-            return rows;
+            this.row = row;
+            this.columnIdx = row * columns.length;
+
+            while (columnStartPositions[columnIdx] >= columnEndPositions[columnIdx])
+                ++columnIdx;
+
+            this.position = columnStartPositions[columnIdx] - 1;
         }
 
-        public int positionFor(Column c)
+        public void setToCell(Column c, int i)
         {
-            ++pos;
+            columnIdx = (row * columns.length) + findColumn(c);
+            position = columnStartPositions[columnIdx] + i;
+        }
 
-            // If lastColumnIdx already points to c, this means this is a collection cell
-            // and not the first one. In any other case, this is the first cell for that
-            // column and we need to mark the position.
-            if (lastColumnIdx < 0 || !c.equals(columns[lastColumnIdx]))
+        // Note: hasNext() actually ends up preparing the next element in the process. However
+        // we don't reuse guava AbstractIterator because it's not "reusable".
+        public boolean hasNext()
+        {
+            ready = true;
+
+            if (row >= rows)
+                return false;
+
+            ++position;
+            if (position < columnEndPositions[columnIdx])
+                return true;
+
+            ++columnIdx;
+            while (columnIdx < columnStartPositions.length && columnStartPositions[columnIdx] >= columnEndPositions[columnIdx])
+                ++columnIdx;
+
+            // We may have passed to the next row
+            if (columnIdx < (row + 1) * columns.length)
+                return true;
+
+            ++row;
+            return false;
+        }
+
+        public Cell next()
+        {
+            if (!ready)
+                hasNext();
+            ready = false;
+            return this;
+        }
+
+        public Column column()
+        {
+            return columns[columnIdx % columns.length];
+        }
+
+        public boolean isDeleted(int now)
+        {
+            return isTombstone() || localDeletionTime() <= now;
+        }
+
+        public boolean isTombstone()
+        {
+            return delFlags.get(position);
+        }
+
+        public ByteBuffer value()
+        {
+            return values[position];
+        }
+
+        public long timestamp()
+        {
+            return timestamps[position];
+        }
+
+        public int ttl()
+        {
+            return ttls[position];
+        }
+
+        public long localDeletionTime()
+        {
+            return delTimes[position];
+        }
+
+        public ByteBuffer key()
+        {
+            return collectionKeys[position];
+        }
+
+        public void setClusteringColumn(int i, ByteBuffer value)
+        {
+            RowData.this.setClusteringColumn(row, i, value);
+        }
+
+        public void addCell(Cell cell)
+        {
+            addCell(cell.column(), cell.isTombstone(), cell.key(), cell.value(), cell.timestamp(), cell.ttl(), cell.localDeletionTime());
+        }
+
+        public void addCell(Column c, boolean isTombstone, ByteBuffer key, ByteBuffer value, long timestamp, int ttl, long deletionTime)
+        {
+            ++position;
+            ensureCapacityFor(position);
+
+            int newColIdx = (row * columns.length) + findColumn(c);
+
+            // Set the end position of the previous cell and the start of that new one if we're not
+            // just written more cells for a started collection, i.e. if this is the first cell written
+            // in this row or it's not the same column that the previous one.
+            if (!rowWritten || newColIdx != columnIdx)
             {
-                int base = rows * columns.length;
-                ++lastColumnIdx;
-                // It could be we have to skip a few columns between the last written and this one
-                while (!c.equals(columns[lastColumnIdx]))
-                    columnPositions[base + (lastColumnIdx++)] = -1;
-
-                columnPositions[base + lastColumnIdx] = pos;
+                columnEndPositions[columnIdx] = position;
+                columnStartPositions[newColIdx] = position;
+                columnIdx = newColIdx;
             }
 
-            return pos;
+            if (isTombstone)
+                delFlags.set(position);
+            collectionKeys[position] = key;
+            values[position] = value;
+            timestamps[position] = timestamp;
+            ttls[position] = ttl;
+            delTimes[position] = deletionTime;
+
+            rowWritten = true;
         }
 
         // called when a row is done
         public void done()
         {
-            for (int i = lastColumnIdx + 1; i < columns.length; i++)
-                columnPositions[(rows * columns.length) + i] = -1;
-
+            columnEndPositions[columnIdx] = position + 1;
+            ++row;
             ++rows;
-            // We write the next available position as the first value for the next row in
-            // columnPositions in case this was the last row that will be written. If
-            // it's not, it will just be overriden right away.
-            columnPositions[rows * columns.length] = pos + 1;
-            lastColumnIdx = -1;
+            rowWritten = false;
+            ready = false;
         }
 
         public void reset()
         {
-            rows = 0;
-            pos = -1;
-            lastColumnIdx = -1;
+            row = 0;
+            columnIdx = 0;
+            position = -1;
+        }
+
+        public void clear()
+        {
+            reset();
+            Arrays.fill(columnStartPositions, 0);
+            Arrays.fill(columnEndPositions, 0);
+        }
+
+        @Override
+        public boolean equals(Object other)
+        {
+            if (!(other instanceof Cell))
+                return false;
+
+            Cell that = (Cell)other;
+            return Objects.equal(this.column(), that.column())
+                && Objects.equal(this.key(), that.key())
+                && Objects.equal(this.value(), that.value())
+                && this.isTombstone() == that.isTombstone()
+                && this.timestamp() == that.timestamp()
+                && this.ttl() == that.ttl()
+                && this.localDeletionTime() == that.localDeletionTime();
         }
     }
 }

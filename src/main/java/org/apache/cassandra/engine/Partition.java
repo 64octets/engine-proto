@@ -30,6 +30,8 @@ public interface Partition //implements Iterable<Row>
 
     // Number of rows in this partition.
     public int rowCount();
+    // Total number of cells in this partition
+    public int cellCount();
 
     // Use sparingly, prefer iterator()/atomIterator when possible
     public Row findRow(RowPath path);

@@ -40,6 +40,9 @@ public class AtomIteratorsTest
                                         .add("c1", 0, 0, 0L)
                                         .add("c1", 1, 1, 1L)
                                         .done();
+        System.out.println("Row = " + Rows.toString(row11));
+
+
         Row row12 = newRowWriter(layout).clustering(0)
                                         .add("a", 5, 1L)
                                         .add("c1", 0, 2, 0L)

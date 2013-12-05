@@ -18,39 +18,19 @@
 package org.apache.cassandra.engine;
 
 import java.nio.ByteBuffer;
-import java.util.Arrays;
-import java.util.BitSet;
+import java.util.Comparator;
 
+import org.junit.Test;
+import static org.junit.Assert.*;
 
-// TODO: We should specialize for dense rows, where we have only one cell per row.
-public class ReusableRow extends AbstractRow
+import static org.apache.cassandra.engine.TestUtils.*;
+
+public class COWMutablePartitionTest
 {
-    private final RowData data;
+    private static final Layout layout = simpleLayout();
 
-    public ReusableRow(Layout layout, int initialCapacity)
+    @Test
+    public void testInsertions()
     {
-        this.data = new RowData(layout, 1, initialCapacity);
-    }
-
-    protected RowData data()
-    {
-        return data;
-    }
-
-    protected int row()
-    {
-        return 0;
-    }
-
-    // Reset a reusable row to which we just wrote and want to now read
-    public void reset()
-    {
-        getReusableCellForWrite().reset();
-    }
-
-    // Clear out the row for reuse
-    public void clear()
-    {
-        getReusableCellForWrite().clear();
     }
 }

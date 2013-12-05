@@ -24,7 +24,7 @@ import java.util.Arrays;
 // in term of ctor.
 public class ClusteringPrefix implements Clusterable
 {
-    private final ByteBuffer[] prefix;
+    protected final ByteBuffer[] prefix;
 
     public ClusteringPrefix(ByteBuffer... values)
     {

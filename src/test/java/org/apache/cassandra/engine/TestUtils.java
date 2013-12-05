@@ -105,22 +105,22 @@ public abstract class TestUtils
 
     public static int ival(Row row, String name)
     {
-        return i(row.value(row.position(col(name))));
+        return i(row.get(col(name)).value());
     }
 
     public static int ival(Row row, String name, int i)
     {
-        return i(row.value(row.position(col(name)) + i));
+        return i(row.get(col(name), i).value());
     }
 
     public static long tstamp(Row row, String name)
     {
-        return row.timestamp(row.position(col(name)));
+        return row.get(col(name)).timestamp();
     }
 
     public static long tstamp(Row row, String name, int i)
     {
-        return row.timestamp(row.position(col(name)) + i);
+        return row.get(col(name), i).timestamp();
     }
 
     public static ByteBuffer bb(int value)
@@ -193,7 +193,7 @@ public abstract class TestUtils
     public static class RowWriter
     {
         private final ReusableRow row;
-        private final AbstractRow.Writer writer;
+        private final Rows.Writer writer;
 
         private RowWriter(ReusableRow row)
         {
@@ -240,6 +240,7 @@ public abstract class TestUtils
         public ReusableRow done()
         {
             writer.done();
+            row.reset();
             return row;
         }
     }

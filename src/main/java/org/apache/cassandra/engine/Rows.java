@@ -27,28 +27,15 @@ public abstract class Rows
 {
     private Rows() {}
 
-    public static void copyRow(Row r, Writer writer)
+    public static void copyRow(Row row, Writer writer)
     {
-        for (int i = 0; i < r.clusteringSize(); i++)
-            writer.setClusteringColumn(i, r.getClusteringColumn(i));
+        for (int i = 0; i < row.clusteringSize(); i++)
+            writer.setClusteringColumn(i, row.getClusteringColumn(i));
 
-        int pos = r.startPosition();
-        int limit = r.endPosition();
-        while (pos < limit)
-        {
-            Column c = r.columnForPosition(pos);
-            for (int i = 0; i < r.size(c); i++)
-            {
-                writer.addCell(c, r.isTombstone(pos), r.key(pos), r.value(pos), r.timestamp(pos), r.ttl(pos), r.localDeletionTime(pos));
-                ++pos;
-            }
-        }
+        for (Cell cell : row)
+            writer.addCell(cell);
+
         writer.done();
-    }
-
-    public static void copyCell(Row r, int position, Writer writer)
-    {
-        writer.addCell(r.columnForPosition(position), r.isTombstone(position), r.key(position), r.value(position), r.timestamp(position), r.ttl(position), r.localDeletionTime(position));
     }
 
     public static String toString(Atom atom)
@@ -94,68 +81,70 @@ public abstract class Rows
     {
         StringBuilder sb = new StringBuilder();
         sb.append("[").append(toString(row.metadata(), (Clusterable)row)).append("](");
-        int pos = row.startPosition();
-        while (pos < row.endPosition())
+        boolean isFirst = true;
+        Column current = null;
+        Iterator<Cell> iter = row.iterator();
+        while (iter.hasNext())
         {
-            if (pos != row.startPosition())
-                sb.append(", ");
-
-            Column c = row.columnForPosition(pos);
-            sb.append(c).append(":");
-            if (c.isCollection())
+            if (isFirst) isFirst = false; else sb.append(", ");
+            Cell cell = iter.next();
+            sb.append(cell.column()).append(":");
+            if (cell.column().isCollection())
             {
-                int size = row.size(c);
+                int size = row.size(cell.column());
                 sb.append("{");
-                for (int i = 0; i < size; i++)
-                {
-                    if (i > 0) sb.append(", ");
-                    appendCell(sb, row, c, pos + i, includeTimestamps);
-                }
+                appendCell(sb, row.metadata(), cell, includeTimestamps);
+                for (int i = 1; i < size; i++)
+                    appendCell(sb.append(", "), row.metadata(), iter.next(), includeTimestamps);
                 sb.append("}");
-                pos += size;
             }
             else
             {
-                appendCell(sb, row, c, pos++, includeTimestamps);
+                appendCell(sb, row.metadata(), cell, includeTimestamps);
             }
         }
         return sb.append(")").toString();
     }
 
-    private static StringBuilder appendCell(StringBuilder sb, Row r, Column c, int pos, boolean includeTimestamps)
+    private static StringBuilder appendCell(StringBuilder sb, Layout metadata, Cell cell, boolean includeTimestamps)
     {
-        if (r.key(pos) != null)
-            sb.append(r.metadata().getKeyType(c).getString(r.key(pos))).append(":");
-        sb.append(r.value(pos) == null ? "null" : r.metadata().getType(c).getString(r.value(pos)));
+        if (cell.key() != null)
+            sb.append(metadata.getKeyType(cell.column()).getString(cell.key())).append(":");
+        sb.append(cell.value() == null ? "null" : metadata.getType(cell.column()).getString(cell.value()));
         if (includeTimestamps)
-            sb.append("@").append(r.timestamp(pos));
+            sb.append("@").append(cell.timestamp());
         return sb;
     }
 
     // Merge multiple rows that are assumed to represent the same row (same clustering prefix).
     public static void merge(Layout layout, List<Row> rows, MergeHelper helper)
     {
+        boolean isMerger = helper.writer instanceof Merger;
+
+        if (isMerger)
+        {
+            assert rows.size() == 2;
+            ((Merger)helper.writer).newMergedRows(rows.get(0), rows.get(1));
+        }
+
         Row first = rows.get(0);
         for (int i = 0; i < layout.clusteringSize(); i++)
             helper.writer.setClusteringColumn(i, first.getClusteringColumn(i));
 
         helper.setRows(rows);
-        boolean isMerger = helper.writer instanceof Merger;
         Merger.Resolution resolution = null;
         while (helper.advance())
         {
             Column nextColumn = helper.nextColumn();
             int count = helper.nextMergedCount();
-            Row toMerge = null;
-            int toMergePos = -1;
+            Cell toMerge = null;
             for (int i = 0; i < count; i++)
             {
-                Row row = helper.nextRow(i);
-                int pos = helper.nextPos(i);
-                if (row == null || (nextColumn.isCollection() && row.key(pos) == null))
+                Cell cell = helper.nextCell(i);
+                if (cell == null)
                     continue;
 
-                boolean overwite = toMerge == null || leftCellOverwrites(row, pos, toMerge, toMergePos, helper.now);
+                boolean overwite = toMerge == null || leftCellOverwrites(cell, toMerge, helper.now);
 
                 // If we have a two row merger, sets the resolution
                 if (isMerger)
@@ -167,39 +156,36 @@ public abstract class Rows
                 }
 
                 if (overwite)
-                {
-                    toMerge = row;
-                    toMergePos = pos;
-                }
+                    toMerge = cell;
             }
-            addCell(nextColumn, toMerge, toMergePos, helper.writer, resolution);
+            addCell(toMerge, helper.writer, resolution);
         }
         helper.writer.done();
     }
 
-    private static void addCell(Column c, Row row, int pos, Writer writer, Merger.Resolution resolution)
+    private static void addCell(Cell cell, Writer writer, Merger.Resolution resolution)
     {
         if (resolution != null)
             ((Merger)writer).nextCellResolution(resolution);
-        writer.addCell(c, row.isTombstone(pos), row.key(pos), row.value(pos), row.timestamp(pos), row.ttl(pos), row.localDeletionTime(pos));
+        writer.addCell(cell);
     }
 
     // TODO: deal with counters
-    private static boolean leftCellOverwrites(Row left, int leftPos, Row right, int rightPos, int now)
+    private static boolean leftCellOverwrites(Cell left, Cell right, int now)
     {
-        if (left.timestamp(leftPos) < right.timestamp(rightPos))
+        if (left.timestamp() < right.timestamp())
             return false;
-        if (left.timestamp(leftPos) > right.timestamp(rightPos))
+        if (left.timestamp() > right.timestamp())
             return true;
 
         // Tombstones take precedence (if the other is also a tombstone, it doesn't matter).
-        if (left.isDeleted(leftPos, now))
+        if (left.isDeleted(now))
             return true;
-        if (right.isDeleted(rightPos, now))
+        if (right.isDeleted(now))
             return true;
 
         // Same timestamp, no tombstones, compare values
-        return left.value(leftPos).compareTo(right.value(rightPos)) < 0;
+        return left.value().compareTo(right.value()) < 0;
     }
 
     /**
@@ -208,6 +194,7 @@ public abstract class Rows
     public interface Writer
     {
         public void setClusteringColumn(int i, ByteBuffer value);
+        public void addCell(Cell cell);
         public void addCell(Column c, boolean isTombstone, ByteBuffer key, ByteBuffer value, long timestamp, int ttl, long deletionTime);
         public void done();
     }
@@ -215,11 +202,14 @@ public abstract class Rows
     /**
      * Handle writing the result of merging 2 rows.
      * <p>
-     * Unlike a simple Writer, a Merger knows where the resulting row comes from (the Resolution).
+     * Unlike a simple Writer, a Merger gets the information on where the resulting row comes from (the Resolution).
      */
     public interface Merger extends Writer
     {
         public enum Resolution { ONLY_IN_LEFT, ONLY_IN_RIGHT, MERGED_FROM_LEFT, MERGED_FROM_RIGHT }
+
+        // Called before the merging of the 2 rows start to indicate which rows are merge being merged.
+        public void newMergedRows(Row left, Row right);
 
         // Called before every addCell() call to indicate from which input row the newly added cell is from.
         public void nextCellResolution(Resolution resolution);
@@ -239,9 +229,9 @@ public abstract class Rows
         public final int now;
 
         private List<Row> rows;
-        private final Column currentColumns[];
-        private final int[] positions;
-        private final int[] limits;
+
+        private final Cell currentCells[];
+        private final Iterator<Cell>[] iterators;
 
         private int nextMergedCount;
         private Column nextColumn;
@@ -253,29 +243,28 @@ public abstract class Rows
             this.writer = writer;
             this.now = now;
 
-            this.currentColumns = new Column[maxRowCount];
-            this.positions = new int[maxRowCount];
-            this.limits = new int[maxRowCount];
+            this.currentCells = new Cell[maxRowCount];
+            this.iterators = (Iterator<Cell>[]) new Iterator[maxRowCount];
             this.nextIndexes = new int[maxRowCount];
             this.nextRemainings = new int[maxRowCount];
         }
 
-        @Override
-        public String toString()
-        {
-            StringBuilder sb = new StringBuilder();
-            sb.append("Rows:\n");
-            for (int i = 0; i < rows.size(); i++)
-                sb.append("  ").append(i).append(": ").append(toString(rows.get(i))).append("\n");
-            sb.append("\ncurrent columns:").append(Arrays.toString(currentColumns));
-            sb.append("\npositions:      ").append(Arrays.toString(positions));
-            sb.append("\nlimits:         ").append(Arrays.toString(limits));
-            sb.append("\n");
-            sb.append("\nnext count:      ").append(nextMergedCount);
-            sb.append("\nnext indexes:    ").append(Arrays.toString(nextIndexes));
-            sb.append("\nnext remainings: ").append(Arrays.toString(nextRemainings));
-            return sb.append("\n").toString();
-        }
+        //@Override
+        //public String toString()
+        //{
+        //    StringBuilder sb = new StringBuilder();
+        //    sb.append("Rows:\n");
+        //    for (int i = 0; i < rows.size(); i++)
+        //        sb.append("  ").append(i).append(": ").append(toString(rows.get(i))).append("\n");
+        //    sb.append("\ncurrent columns:").append(Arrays.toString(currentColumns));
+        //    sb.append("\npositions:      ").append(Arrays.toString(positions));
+        //    sb.append("\nlimits:         ").append(Arrays.toString(limits));
+        //    sb.append("\n");
+        //    sb.append("\nnext count:      ").append(nextMergedCount);
+        //    sb.append("\nnext indexes:    ").append(Arrays.toString(nextIndexes));
+        //    sb.append("\nnext remainings: ").append(Arrays.toString(nextRemainings));
+        //    return sb.append("\n").toString();
+        //}
 
         private void setRows(List<Row> rows)
         {
@@ -284,10 +273,9 @@ public abstract class Rows
             nextMergedCount = 0;
             for (int i = 0; i < rows.size(); i++)
             {
-                Row row = rows.get(i);
-                positions[i] = row.startPosition();
-                limits[i] = row.endPosition();
-                currentColumns[i] = row.columnForPosition(positions[i]);
+                Iterator<Cell> iter = rows.get(i).iterator();
+                iterators[i] = iter;
+                currentCells[i] = iter.hasNext() ? iter.next() : null;
             }
         }
 
@@ -312,13 +300,10 @@ public abstract class Rows
                 // it's the current column for the row considered, it means we've
                 // just returned a value for it, advance the position.
                 // Note: nextColumn can't be null since initially nextMergedCount == 0.
-                if (nextColumn.equals(currentColumns[idx]))
+                if (nextColumn.equals(currentCells[idx].column()))
                 {
-                    int newPos = ++positions[idx];
-                    int newRemaining = --nextRemainings[i];
-                    if (nextRemainings[idx] == 0)
-                        currentColumns[idx] = newPos < limits[idx] ? row.columnForPosition(newPos) : null;
-                    else
+                    currentCells[idx] = iterators[idx].hasNext() ? iterators[idx].next() : null;
+                    if (--nextRemainings[i] != 0)
                         lastColumnDone = false;
                 }
             }
@@ -332,7 +317,7 @@ public abstract class Rows
             nextColumn = null;
             for (int i = 0; i < nbRows; i++)
             {
-                Column c = currentColumns[i];
+                Column c = currentCells[i] == null ? null : currentCells[i].column();
                 if (c != null && (nextColumn == null || nextColumn.compareTo(c) > 0))
                     nextColumn = c;
             }
@@ -344,11 +329,11 @@ public abstract class Rows
             nextMergedCount = 0;
             for (int i = 0; i < nbRows; i++)
             {
-                Column c = currentColumns[i];
-                if (c != null && c.equals(nextColumn))
+                Cell cell = currentCells[i];
+                if (cell != null && cell.column().equals(nextColumn))
                 {
                     nextIndexes[nextMergedCount] = i;
-                    nextRemainings[nextMergedCount] = rows.get(i).size(c);
+                    nextRemainings[nextMergedCount] = rows.get(i).size(cell.column());
                     ++nextMergedCount;
                 }
             }
@@ -365,14 +350,9 @@ public abstract class Rows
             return nextMergedCount;
         }
 
-        private Row nextRow(int i)
+        private Cell nextCell(int i)
         {
-            return nextRemainings[i] == 0 ? null : rows.get(nextIndexes[i]);
-        }
-
-        private int nextPos(int i)
-        {
-            return positions[nextIndexes[i]];
+            return nextRemainings[i] == 0 ? null : currentCells[nextIndexes[i]];
         }
 
         private boolean isLeft(int i)

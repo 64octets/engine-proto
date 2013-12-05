@@ -34,6 +34,14 @@ public abstract class AtomIterators
     }
 
     /**
+     * Merge 2 iterators using the provided MergeWriter.
+     */
+    public static AtomIterator merge(AtomIterator left, AtomIterator right, MergeWriter writer, int now)
+    {
+        return new AtomMergeIterator(Arrays.asList(left, right), writer, now);
+    }
+
+    /**
      * Returns an iterator that filter any tombstone older than {@code gcBefore}
      * in {@code iterator}.
      */
@@ -51,15 +59,14 @@ public abstract class AtomIterators
             protected Row filter(Row row)
             {
                 Rows.Writer writer = result.writer();
-                int limit = row.endPosition();
                 boolean writtenOne = false;
-                for (int i = row.startPosition(); i < limit; i++)
+                for (Cell cell : row)
                 {
-                    if (row.isDeleted(i, now))
+                    if (cell.isDeleted(now))
                         continue;
 
                     writtenOne = true;
-                    Rows.copyCell(row, i, writer);
+                    writer.addCell(cell);
                 }
                 return writtenOne ? result : null;
             }
@@ -92,16 +99,46 @@ public abstract class AtomIterators
             {
                 int live = 0;
                 int tombstoned = 0;
-                int limit = row.endPosition();
-                for (int i = row.startPosition(); i < limit; i++)
+                for (Cell cell : row)
                 {
-                    if (row.isDeleted(i, now))
+                    if (cell.isDeleted(now))
                         ++tombstoned;
                     else
                         ++live;
                 }
                 counter.countRow(live, tombstoned);
                 return row;
+            }
+        };
+    }
+
+    /**
+     * Returns an iterator that clone all ByteBuffer using the provided allocator.
+     */
+    public static AtomIterator cloningIterator(final AtomIterator iterator, final Allocator allocator)
+    {
+        return new AbstractFilteringAtomIterator(iterator)
+        {
+            private final CloningRangeTombstone rangeTombstone = new CloningRangeTombstone(iterator.metadata(), allocator);
+            private final ReusableRow result = new ReusableRow(iterator.metadata(), iterator.metadata().regularColumns().length);
+
+            protected RangeTombstone filter(RangeTombstone rt)
+            {
+                rangeTombstone.set(rt.min(), rt.max(), rt.delTime());
+                return rangeTombstone;
+            }
+
+            protected Row filter(Row row)
+            {
+                Rows.Writer writer = result.writer();
+                for (Cell cell : row)
+                    writer.addCell(cell.column(), cell.isTombstone(), copy(cell.key()), copy(cell.value()), cell.timestamp(), cell.ttl(), cell.localDeletionTime());
+                return result;
+            }
+
+            private ByteBuffer copy(ByteBuffer bb)
+            {
+                return bb == null ? null : allocator.clone(bb);
             }
         };
     }
@@ -122,9 +159,10 @@ public abstract class AtomIterators
         private final DecoratedKey partitionKey;
         private final DeletionTime partitionLevelDeletion;
         private final MergeIterator<Atom, Atom> mergeIterator;
-        private final int now;
+        private final MergeWriter writer;
+        private final Rows.MergeHelper helper;
 
-        private AtomMergeIterator(List<AtomIterator> iterators, int now)
+        private AtomMergeIterator(List<AtomIterator> iterators, MergeWriter writer, int now)
         {
             assert iterators.size() > 1;
             // TODO: we could assert all iterators are on the same CF && key
@@ -132,7 +170,15 @@ public abstract class AtomIterators
             this.partitionKey = iterators.get(0).getPartitionKey();
             this.partitionLevelDeletion = collectPartitionLevelDeletion(iterators);
             this.mergeIterator = MergeIterator.get(iterators, metadata.comparator().atomComparator(), createReducer(iterators.size()));
-            this.now = now;
+            this.writer = writer;
+            this.helper = new Rows.MergeHelper(writer, now, iterators.size());
+
+            writer.setPartitionLevelDeletion(partitionLevelDeletion);
+        }
+
+        private AtomMergeIterator(List<AtomIterator> iterators, int now)
+        {
+            this(iterators, new MergeWriter(iterators.get(0).metadata()), now);
         }
 
         private MergeIterator.Reducer<Atom, Atom> createReducer(final int size)
@@ -142,12 +188,6 @@ public abstract class AtomIterators
                 private Atom.Kind nextKind;
                 private RangeTombstone rangeTombstone;
                 private final List<Row> rows = new ArrayList<>(size);
-                // TODO: we could maybe do better for the estimation of the initial capacity of that reusable row. For instance,
-                // the AtomIterator interface could return an estimate of the size of rows it will return, and we could average/max
-                // it over all iterators.
-                private final ReusableRow row = new ReusableRow(metadata, metadata.regularColumns().length);
-                private final SkipShadowedWriter writer = new SkipShadowedWriter(row, new TombstoneTracker(metadata.comparator()));
-                private final Rows.MergeHelper helper = new Rows.MergeHelper(writer, now, size);
 
                 public boolean trivialReduceIsTrivial()
                 {
@@ -177,10 +217,10 @@ public abstract class AtomIterators
                     {
                         case ROW:
                             Rows.merge(metadata, rows, helper);
-                            writer.tracker.update(row);
+                            writer.tracker.update(writer.row);
                             // Because shadowed cells are skipped, the row could be empty. In which case
                             // we return and the enclosing iterator will just skip it.
-                            return row.cellsCount() == 0 ? null : row;
+                            return writer.row.cellsCount() == 0 ? null : writer.row;
                         case RANGE_TOMBSTONE:
                             writer.tracker.update(rangeTombstone);
                             return rangeTombstone;
@@ -195,7 +235,7 @@ public abstract class AtomIterators
                     if (nextKind == Atom.Kind.ROW)
                     {
                         rows.clear();
-                        writer.reset();
+                        writer.row.clear();
                     }
                 }
             };
@@ -240,44 +280,75 @@ public abstract class AtomIterators
         {
             mergeIterator.close();
         }
+    }
 
-        /**
-         * Trivial wrapper over a reusable row that leaves out cells shadowed by
-         * range tombstones when writing.
-         */
-        private static class SkipShadowedWriter implements Rows.Writer
+    /**
+     * Specific row writer for merge operations that rewrite the same reusable row every time.
+     * <p>
+     * This writer also skips cells shadowed by range tombstones when writing.
+     */
+    public static class MergeWriter implements Rows.Writer
+    {
+        protected final ReusableRow row;
+        protected Rows.Writer writer;
+        protected final TombstoneTracker tracker;
+        protected DeletionTime topLevelDeletion;
+
+        public MergeWriter(Layout metadata)
         {
-            private final ReusableRow row;
-            private final AbstractRow.Writer writer;
-            public final TombstoneTracker tracker;
+            // TODO: we could maybe do better for the estimation of the initial capacity of that reusable row. For instance,
+            // the AtomIterator interface could return an estimate of the size of rows it will return, and we could average/max
+            // it over all iterators.
+            this.row = new ReusableRow(metadata, metadata.regularColumns().length);
+            this.writer = row.writer();
+            this.tracker = new TombstoneTracker(metadata.comparator());
+        }
 
-            public SkipShadowedWriter(ReusableRow row, TombstoneTracker tracker)
+        protected void onSkippedCell() {}
+        protected void onAddedCell() {}
+        protected void onSkippedRow() {}
+
+        // We set that inside AtomMergeIterator but the MergeWriter is created outside so we can set that in the ctor.
+        // (we could have a some Builder interface instead but that is probably not worth the trouble).
+        private void setPartitionLevelDeletion(DeletionTime delTime)
+        {
+            this.topLevelDeletion = delTime;
+        }
+
+        public void setClusteringColumn(int i, ByteBuffer value)
+        {
+            writer.setClusteringColumn(i, value);
+        }
+
+        public void addCell(Cell cell)
+        {
+            addCell(cell.column(), cell.isTombstone(), cell.key(), cell.value(), cell.timestamp(), cell.ttl(), cell.localDeletionTime());
+        }
+
+        public void addCell(Column c, boolean isTombstone, ByteBuffer key, ByteBuffer value, long timestamp, int ttl, long deletionTime)
+        {
+            if (topLevelDeletion.markedForDeleteAt() >= timestamp || tracker.isDeleted(row, timestamp))
             {
-                this.row = row;
-                this.writer = row.writer();
-                this.tracker = tracker;
+                onSkippedCell();
+                return;
             }
 
-            public void setClusteringColumn(int i, ByteBuffer value)
-            {
-                writer.setClusteringColumn(i, value);
-            }
+            onAddedCell();
+            writer.addCell(c, isTombstone, key, value, timestamp, ttl, deletionTime);
+        }
 
-            public void addCell(Column c, boolean isTombstone, ByteBuffer key, ByteBuffer value, long timestamp, int ttl, long deletionTime)
-            {
-                if (!tracker.isDeleted(row, timestamp))
-                    writer.addCell(c, isTombstone, key, value, timestamp, ttl, deletionTime);
-            }
+        public void done()
+        {
+            writer.done();
+            if (row.cellsCount() == 0)
+                onSkippedRow();
 
-            public void done()
-            {
-                writer.done();
-            }
+            row.reset();
+        }
 
-            public void reset()
-            {
-                writer.reset();
-            }
+        public void clear()
+        {
+            row.clear();
         }
     }
 }

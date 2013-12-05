@@ -168,10 +168,10 @@ public class ArrayBackedPartitionTest
 
         assertEquals(3, p.rowCount());
 
-        validateRow1(p.findRow(path(0)));
-        validateRow2(p.findRow(path(5)));
-        validateRow3(p.findRow(path(10)));
-        assertEquals(null, p.findRow(path(1)));
+        //validateRow1(p.findRow(path(0)));
+        //validateRow2(p.findRow(path(5)));
+        //validateRow3(p.findRow(path(10)));
+        //assertEquals(null, p.findRow(path(1)));
 
         assertSameIterator(builder.build(), p.atomIterator());
     }

@@ -57,59 +57,6 @@ public class ArrayBackedPartition implements Partition
         this.data = new RowData(metadata, rowsCapacity, cellsCapacity);
     }
 
-    public Layout metadata()
-    {
-        return metadata;
-    }
-
-    public ClusteringComparator comparator()
-    {
-        return metadata.comparator();
-    }
-
-    public DecoratedKey getPartitionKey()
-    {
-        return partitionKey;
-    }
-
-    public DeletionInfo deletionInfo()
-    {
-        return deletion;
-    }
-
-    // No values (even deleted), live deletion infos
-    public boolean isEmpty()
-    {
-        return deletion.isLive() && data.rows() == 0;
-    }
-
-    public int rowCount()
-    {
-        return data.rows();
-    }
-
-    // Use sparingly, prefer iterator() when possible to save allocations
-    public Row findRow(RowPath path)
-    {
-        RowCursor wrapper = new RowCursor();
-        return Cursors.moveTo(path, wrapper) ? wrapper : null;
-    }
-
-    //public Iterator<Row> iterator()
-    //{
-    //    return new IndexBasedIterator<Row>(new RowCursor());
-    //}
-
-    public AtomIterator atomIterator()
-    {
-        return new PartitionAtomIterator(Slices.SELECT_ALL);
-    }
-
-    public AtomIterator atomIterator(Slices slices)
-    {
-        return new PartitionAtomIterator(slices);
-    }
-
     public static Partition accumulate(AtomIterator iterator, int rowsCapacity, int cellsCapacity)
     {
         if (!iterator.hasNext())
@@ -141,21 +88,71 @@ public class ArrayBackedPartition implements Partition
         return partition;
     }
 
+    public Layout metadata()
+    {
+        return metadata;
+    }
+
+    public ClusteringComparator comparator()
+    {
+        return metadata.comparator();
+    }
+
+    public DecoratedKey getPartitionKey()
+    {
+        return partitionKey;
+    }
+
+    public DeletionInfo deletionInfo()
+    {
+        return deletion;
+    }
+
+    // No values (even deleted), live deletion infos
+    public boolean isEmpty()
+    {
+        return deletion.isLive() && data.rows() == 0;
+    }
+
+    public int rowCount()
+    {
+        return data.rows();
+    }
+
+    public int cellCount()
+    {
+        return data.cells();
+    }
+
+    // Use sparingly, prefer iterator() when possible to save allocations
+    public Row findRow(RowPath path)
+    {
+        RowCursor wrapper = new RowCursor();
+        return Cursors.moveTo(path, wrapper) ? wrapper : null;
+    }
+
+    //public Iterator<Row> iterator()
+    //{
+    //    return new IndexBasedIterator<Row>(new RowCursor());
+    //}
+
+    public AtomIterator atomIterator()
+    {
+        return new PartitionAtomIterator(Slices.SELECT_ALL);
+    }
+
+    public AtomIterator atomIterator(Slices slices)
+    {
+        return new PartitionAtomIterator(slices);
+    }
+
     private class RowCursor extends AbstractRow implements Cursor
     {
         private int row;
-        private AbstractRow.Writer writer;
 
         public int row()
         {
             return row;
-        }
-
-        public Writer writer()
-        {
-            if (writer == null)
-                writer = new AbstractRow.Writer(data);
-            return writer;
         }
 
         protected RowData data()

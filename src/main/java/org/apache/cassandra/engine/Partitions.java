@@ -73,6 +73,11 @@ public abstract class Partitions
             return 0;
         }
 
+        public int cellCount()
+        {
+            return 0;
+        }
+
         public Row findRow(RowPath path)
         {
             return null;
